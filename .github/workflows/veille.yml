@@ -3,17 +3,8 @@ name: Veille adjudications France
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 9-18 * * *'
-      timezone: Europe/Paris
-  push:
-    branches: [main]
-    paths:
-      - '*.py'
-      - sources.csv
-      - estimations.csv
-      - repertoire_greffes.csv
-      - repertoire_avocats.csv
-      - .github/workflows/veille.yml
+    - cron: '0 18 * * *'
+      timezone: Africa/Casablanca
 
 permissions:
   contents: write
@@ -25,7 +16,7 @@ concurrency:
 jobs:
   veille:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 240
     steps:
       - name: Lire le dépôt
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
