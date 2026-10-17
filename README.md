@@ -4,31 +4,31 @@ Surveillance des pages publiques déclarées dans `sources.csv`, lecture bornée
 
 ## Exécution automatique
 
-Le workflow **Veille adjudications France** s'exécute chaque jour à **09 h, 10 h, …, 18 h, heure de Paris**, avec le fuseau `Europe/Paris` et ses changements d'heure. GitHub peut décaler une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
+Le workflow **Veille adjudications France** s'exécute une fois par jour à **18 h, heure de Marrakech**, avec le fuseau `Africa/Casablanca` et ses changements d'heure. GitHub peut décaler légèrement une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
 
-Les changements du code, des sources, des estimations ou du workflow déclenchent les tests et une collecte. Les commits du rapport ne relancent pas la collecte.
+Les changements du code ou des sources ne lancent pas une seconde collecte automatiquement : le passage quotidien reste unique, sauf lancement manuel depuis Actions.
 
 - [Dernier rapport lisible](rapports/dernier.md)
 - [Résultats structurés](rapports/dernier.json)
 - [Tableau CSV](rapports/dernier.csv)
 - [Journal des pages sources](rapports/sources.csv)
-- [Exécutions et archives](https://github.com/adjudications-france-monitor/adjudications-france-monitor/actions)
+- [Exécutions et archives](https://github.com/stephanemarmin-hue/adjudications-france-monitor/actions)
 
 Chaque exécution conserve le rapport, le catalogue de liens et l'état dans un artefact pendant 30 jours. Un cache permet de suivre les nouveautés et les modifications entre passages. Si le cache disparaît, la collecte et les filtres fonctionnent toujours ; le compteur de nouveautés repart de zéro.
 
-Les tâches ChatGPT existantes de surveillance horaire et de bilan quotidien peuvent lire `rapports/dernier.json` et `rapports/dernier.md`. Le workflow ne constitue pas à lui seul une notification ChatGPT.
+Une tâche ChatGPT de bilan quotidien peut lire `rapports/dernier.json` et `rapports/dernier.md`. Le workflow ne constitue pas à lui seul une notification ChatGPT.
 
 ## Ce que le moteur vérifie
 
-1. Il consulte les **38 pages actives** parmi les **41 pages configurées**. Les pages actives, les trois exclusions et les limites de collecte sont documentées dans [SOURCES.md](SOURCES.md). Le [référentiel national restauré](REFERENTIEL_NATIONAL.md) contient aussi les fiches de juridictions et d’avocats retrouvées dans la base.
+1. Il parcourt les **1 996 sources actives** de `sources.csv`, dont les **1 975 adresses distinctes** du référentiel national restauré. Certaines URL sont des annuaires, profils ou pages sans annonces ; le rapport distingue les pages accessibles et réellement productives.
 2. Il détecte des liens d'audiences et de fiches. Les cartes Avoventes incluent date, prix publié et échéance lorsqu'ils sont affichés.
 3. Il ouvre les audiences Licitor entre **J+1 et J+4** et leur pagination, dans la limite de **40 pages d'audience** par passage.
 4. Il lit jusqu'à **120 fiches**, avec priorité aux dates récentes. Les fiches sans date identifiée sont explorées par rotation. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
-5. Il extrait les mentions explicites de prix adjugé, audience, échéance, occupation et travaux. Les mises à prix, prix DVF de biens voisins et dates de visite ne remplacent pas ces données.
+5. Il extrait les mentions explicites de date, prix, occupation et travaux. Pour la sélection automatique, seule la preuve que le bien est libre est obligatoire ; les autres champs restent informatifs.
 6. Il publie un rapport même si des sources échouent. Une couverture partielle est signalée par un avertissement visible et le code de collecte 2. Une erreur d'extracteur ou l'absence de toute source exploitable entraîne un échec du workflow (code 1).
 7. Il consulte jusqu'à **12 PDF**, traite jusqu'à **80 pages** dont **6 par OCR**, avec **8 pages au plus par document et par passage**. La lecture reprend les pages restantes aux passages suivants. Le contenu du PDF est identifié par son empreinte : une modification remet sa lecture à zéro. Les pièces des fiches récentes sont prioritaires, puis la file tourne selon la dernière tentative.
 
-Les indices PDF comportent **URL, numéro de page, méthode texte/OCR et extrait ciblé**. Ils sont conservés séparément des faits de l'annonce : plusieurs biens, dates ou prix peuvent figurer dans une pièce. Le rapport affiche les contradictions, pages restantes et erreurs dans ses données structurées. Une extraction ne confirme ni l'attribution d'une mention au bien, ni son actualité, ni une condition juridique. Les publications restent de **niveau C, à contrôler**. L'absence de mention de travaux ne suffit pas à confirmer une revente sans travaux.
+Les indices PDF comportent **URL, numéro de page, méthode texte/OCR et extrait ciblé**. Ils sont conservés séparément des faits de l'annonce : plusieurs biens, dates ou prix peuvent figurer dans une pièce. Le rapport affiche les contradictions, pages restantes et erreurs dans ses données structurées. Une extraction ne confirme ni l'attribution d'une mention au bien, ni son actualité. Une occupation incompatible récente peut exclure un dossier ; les mentions de travaux ne le bloquent pas.
 
 Les indices des passages précédents restent disponibles dans `historique_documents` et dans les fiches concernées, avec leur date réelle de contrôle et le marqueur `consulte_ce_passage`. Ils ne sont pas comptés comme des documents relus lors du passage actuel. Le rapport distingue pages techniquement traitées, pages effectivement lues et pages OCR réussies.
 
@@ -42,32 +42,16 @@ Ces délais sont conservés dans l'état et restaurés au passage suivant. Le ra
 
 - Audience entre **J+1 et J+4**, en jours calendaires et selon la date en France.
 - Bien libre avec preuve ; un bien occupé, loué ou contradictoire est rejeté.
-- Revente **en l'état, sans travaux** : toute nécessité explicite de travaux entraîne un rejet.
-- Prix adjugé publié ; une vente retirée, reportée ou non requise est rejetée.
-- Surenchère encore recevable et confirmée par les pièces et l'avocat. Une date annoncée est un indice à vérifier. Une vente déjà sur surenchère est écartée de ce scénario.
-- Valeur prudente et ensemble des frais documentés ; marge minimale de **40 % sur tous les coûts engagés**, avant fiscalité du bénéfice.
+- Une vente retirée, reportée, non requise ou amiable est rejetée.
+- Les travaux, le prix adjugé, la date de surenchère, la valorisation, les frais et la marge restent informatifs et ne bloquent pas la sélection.
 
-Les informations manquantes produisent le statut `a_verifier`, jamais une opportunité confirmée. Le statut `retenu_sur_donnees_validees` suppose une validation documentée récente renseignée dans `estimations.csv` et une fiche relue lors du passage. Ce statut n'autorise aucune enchère automatiquement.
+Une occupation inconnue produit le statut `a_verifier`. Le statut `retenu_sur_donnees_validees` signifie uniquement que l'occupation libre est confirmée par la fiche ou par une validation manuelle récente. Il n'autorise aucune enchère automatiquement.
 
-Le moteur n'invente pas une date de clôture à J+10. Les prorogations, jours fériés, règles locales et recevabilité restent à contrôler : [R322-50 à R322-55](https://www.legifrance.gouv.fr/codes/id/LEGISCTA000025939177), [article 642 du CPC](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006411003).
+## Rapport quotidien et historique
 
-## Calcul du plafond au marteau
+Le rapport quotidien affiche uniquement les dossiers **nouveaux ou modifiés pendant le passage du jour**. Un jour sans changement produit donc un rapport vide, sans répéter les anciens résultats. Le catalogue et l'état conservent néanmoins l'historique complet pour les recherches ultérieures.
 
-Soit `R` la valeur prudente de revente en l'état, `F` les frais fixes d'acquisition, `t` le taux de frais proportionnels, `V` les frais de revente et `P` le portage.
-
-```
-Coût engagé = marteau × (1 + t) + F + V + P
-Bénéfice prévisionnel avant fiscalité = R − coût engagé
-Marge = bénéfice / coût engagé
-Plafond marteau = max(0, (R / 1,40 − F − V − P) / (1 + t))
-Plancher de surenchère = prix adjugé × 1,10
-```
-
-Le plafond est arrondi au centime inférieur. Si le plancher dépasse le plafond, le bien est rejeté pour le seuil de 40 %. Le rapport expose les frais et le montant acte en mains au plafond, le bénéfice correspondant et un scénario de revente diminuée de 10 %. Les calculs au plancher sont également conservés dans le JSON.
-
-L'en-tête de `estimations.csv` décrit les champs à renseigner : URL du bien, date de vérification, occupation, preuve d'état sans travaux, confirmation de la surenchère, valeur prudente, frais et leurs sources. Les validations doivent dater de **sept jours au plus**. Les montants sont en euros ; `taux_frais_acquisition` est une fraction (`0.08` pour 8 %). Les frais fixes et proportionnels doivent couvrir tous les frais d'acquisition pertinents, sans double compte. Un zéro doit être renseigné explicitement et justifié ; un champ vide reste inconnu.
-
-La valeur et les frais ne sont pas estimés à partir de simples mots-clés. La valeur exige des comparables locaux adaptés à la surface et à l'état, notamment DVF, et une analyse de liquidité. Le délai de revente et l'analyse du marché sont documentés dans les colonnes correspondantes. Le fichier est vide à l'installation tant que ces validations ne sont pas disponibles.
+Le fichier `estimations.csv` peut encore confirmer manuellement une occupation libre lorsque la date de vérification et la source d'occupation ont moins de sept jours. Ses anciens champs financiers sont conservés pour compatibilité, mais ils n'interviennent plus dans la sélection.
 
 ## Installation et test local
 
@@ -87,7 +71,7 @@ python veille.py --max-hearings 40 --max-details 120 --max-documents 12 --max-pd
 python veille.py --now 2026-10-07T12:00:00+02:00 --fixtures correspondances.json
 ```
 
-Le second mode lit un JSON `URL → chemin HTML ou PDF local` pour vérifier les extracteurs sans réseau. Ajouter `--max-documents 0` pour désactiver la lecture des pièces. Les tests couvrent dates françaises, fuseau Paris, prix/frais, marge et stress, occupation contradictoire, travaux, délai expiré, seconde adjudication, données manquantes, mise à prix, isolation des comparables, pagination, erreurs et actualisation de l'état. Les régressions supplémentaires vérifient les délais HTTP, l'arrêt des requêtes déjà en file, la persistance, la reprise des pages, l'OCR différé, les changements de PDF, la provenance et l'absence de validation automatique d'une opportunité.
+Le second mode lit un JSON `URL → chemin HTML ou PDF local` pour vérifier les extracteurs sans réseau. Ajouter `--max-documents 0` pour désactiver la lecture des pièces. Les tests couvrent les dates françaises, le fuseau Paris, l'occupation libre ou incompatible, les champs informatifs, la mise à prix, la pagination, les erreurs, l'actualisation de l'état et l'affichage quotidien limité aux nouveautés ou modifications.
 
 ## Référentiel national restauré
 
@@ -97,16 +81,14 @@ Le répertoire des greffes comprend des fiches d’annuaire officiel, dont 157 t
 
 ## Limites de couverture
 
-Le référentiel national conserve 1 053 fiches de juridictions et 1 690 fiches d’avocats, dont 706 références prioritaires. Ces fiches sont des pistes et contacts documentés; elles ne signifient pas que 1 690 cabinets disposent d’une page de ventes distincte, ni que tous les greffes publient des annonces. Vingt pages de vente de cabinets sont configurées directement, en plus des sources de plateformes et de journaux. La collecte porte sur les 38 pages actives et leurs liens détectés, dans les budgets du moteur; elle ne constitue pas un balayage exhaustif de tout le web ou des annonces. Le rapport affiche les budgets, les lectures réellement effectuées, les fiches encore sans date et les erreurs d’accès.
+Le référentiel national conserve 1 053 fiches de juridictions et 1 690 fiches d’avocats, dont 706 références prioritaires. Ces fiches sont des pistes et contacts documentés ; elles ne signifient pas que 1 690 cabinets disposent d’une page de ventes distincte, ni que tous les greffes publient des annonces. Les 1 996 URL actives sont parcourues dans les budgets du moteur ; cette liste ne constitue pas un balayage exhaustif de tout le web ou des annonces. Le rapport affiche les lectures réellement effectuées et les erreurs d’accès.
 
 La déduplication porte sur les URL. Deux publications du même bien sur deux sites peuvent rester distinctes ; elles ne doivent pas être comptées comme deux opportunités indépendantes sans contrôle. `Registre_Adjudications.xlsx` et la base nationale restent les outils de consolidation : ce programme ne les modifie pas.
 
 Le dépôt est public. Il ne doit contenir ni credentials, ni coordonnées privées, ni document confidentiel : uniquement le code, les sources publiques et les résultats publics de la collecte.
 
-## Exclusions d'occupation et d'état
+## Contrôle de l'occupation
 
-Les libellés courts `LIBRE`, `Occupé` et `Loué` sont lus dans les blocs de description du lot reconnus sur Licitor, Avoventes et Vench ; les menus et liens ne fournissent pas ces preuves. Les avis indiquant « les lieux sont occupés » ou « loués et occupés » et les descriptions en mauvais état sont détectés. Les négations et les mentions anciennes, futures ou conditionnelles restent à vérifier.
+Les libellés courts `LIBRE`, `Occupé` et `Loué` sont lus dans les blocs de description du lot reconnus sur Licitor, Avoventes et Vench ; les menus et liens ne fournissent pas ces preuves. Les avis indiquant « les lieux sont occupés » ou « loués et occupés » sont détectés. Les négations et les mentions anciennes, futures ou conditionnelles restent à vérifier.
 
-Une pièce PDF rattachée au dossier et contrôlée depuis au plus sept jours peut écarter un candidat en l'état si elle indique une occupation incompatible ou des travaux. Le motif conserve la page et la méthode texte/OCR, et précise que l'identité du lot et l'actualité du document restent à contrôler. Cette exclusion prudente ne valide aucune opportunité, valeur de revente ou recevabilité juridique. Après un changement des règles d'extraction, les pages déjà traitées avec l'ancienne version sont relues progressivement dans les mêmes budgets.
-
-
+Une pièce PDF rattachée au dossier et contrôlée depuis au plus sept jours peut écarter un candidat si elle indique une occupation incompatible. Le motif conserve la page et la méthode texte/OCR, et précise que l'identité du lot et l'actualité du document restent à contrôler. Une mention de travaux est conservée comme information, sans exclusion. Après un changement des règles d'extraction, les pages déjà traitées avec l'ancienne version sont relues progressivement dans les mêmes budgets.

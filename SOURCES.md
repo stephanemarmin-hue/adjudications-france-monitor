@@ -1,6 +1,6 @@
 # État des sources — 15 octobre 2026
 
-La liste exécutée par le moteur est `sources.csv`. Le dernier passage contrôlé a consulté les 38 pages actives configurées (41 entrées au total, dont 3 désactivées). Le rapport détaillé par URL est publié dans [rapports/sources.csv](rapports/sources.csv) et les résultats du passage dans [rapports/dernier.md](rapports/dernier.md).
+La liste exécutée par le moteur est `sources.csv`. Elle contient **1 996 sources actives**, dont toutes les **1 975 URL distinctes** du catalogue national et 21 sources complémentaires. Le rapport détaillé par URL est publié dans [rapports/sources.csv](rapports/sources.csv) et les nouveautés ou modifications du jour dans [rapports/dernier.md](rapports/dernier.md).
 
 ## Couverture au dernier passage
 

@@ -349,15 +349,13 @@ def save_report(folder, report):
     atomic_json(folder / "dernier.json", report)
     rows = report["dossiers"]
     columns = ["id", "statut", "adresse", "titre", "date_vente", "jours_apres_audience", "occupation",
-               "prix_adjuge_eur", "date_limite_surenchere", "plafond_marteau_eur", "marge_au_minimum_pct",
-               "motifs_rejet", "a_verifier", "url_annonce"]
+               "prix_adjuge_eur", "motifs_rejet", "a_verifier", "url_annonce"]
     with (folder / "dernier.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
         for row in rows:
             output = {key: row.get(key, "") for key in columns}
-            output.update({key: row["faits"].get(key, "") for key in ["date_vente", "occupation", "prix_adjuge_eur", "date_limite_surenchere"]})
-            output.update({key: row.get("calcul_financier", {}).get(key, "") for key in ["plafond_marteau_eur", "marge_au_minimum_pct"]})
+            output.update({key: row["faits"].get(key, "") for key in ["date_vente", "occupation", "prix_adjuge_eur"]})
             for key in ["motifs_rejet", "a_verifier"]:
                 output[key] = "; ".join(row[key])
             writer.writerow(output)
@@ -367,80 +365,60 @@ def save_report(folder, report):
         writer.writeheader()
         writer.writerows(report["sources"])
     count = report["comptages"]
-    lines = ["# Veille adjudications — dernier passage", "", f"Contrôle : **{report['controle_paris']}** (Europe/Paris).",
-             "", f"**{count['retenus']} dossier(s) retenu(s) sur données validées**, {count['a_verifier']} à vérifier, "
-             f"{count['rejetes_recents']} rejet(s) dans la fenêtre J+1 à J+4.", "",
+    lines = ["# Veille adjudications — nouveautés du jour", "", f"Contrôle : **{report['controle_paris']}** (Europe/Paris).",
+             "", f"**{count['dossiers_recents']} dossier(s) nouveau(x) ou modifié(s) aujourd'hui** : "
+             f"{count['retenus']} bien(s) libre(s) confirmé(s), {count['a_verifier']} à vérifier et "
+             f"{count['rejetes_recents']} rejet(s).", "",
+             f"Le moteur a observé {count.get('dossiers_recents_observes', 0)} dossier(s) dans la fenêtre J+1 à J+4 ; "
+             "seuls les nouveaux ou modifiés figurent ci-dessous. L'historique complet reste conservé dans le catalogue.", "",
              f"{count['sources_ok']}/{count['sources_actives']} pages sources accessibles ; {count['liens_distincts']} liens distincts ; "
              f"{count['audiences_lues']} pages d'audience et {count['fiches_lues']} fiches détaillées lues.", "",
-             f"Nouveautés : {count['nouveaux_liens']} liens ; {count['fiches_modifiees']} fiches modifiées depuis le passage précédent.", "",
+             f"Nouveautés : {count['nouveaux_liens']} liens ; {count.get('fiches_nouvellement_lues', 0)} fiches lues pour la première fois ; "
+             f"{count['fiches_modifiees']} fiches modifiées depuis le passage précédent.", "",
              f"Pièces : {count.get('documents_pdf_consultes', 0)} PDF accessibles ; {count.get('pages_pdf_traitees', 0)} pages traitées ce passage, "
              f"{count.get('pages_pdf_extraites', 0)} lues, dont {count.get('pages_ocr', 0)} par OCR. "
              f"{count.get('acces_differes', 0)} requêtes différées après une limite ou un refus d'accès.", "",
              "Le nombre de liens inclut des audiences et des annonces anciennes ou futures. La couverture est limitée aux pages listées et au budget de lecture indiqué ci-dessous.", "",
-             "## Achat-revente sans travaux", "",
-             "Marge minimale : bénéfice prévisionnel avant fiscalité / (acquisition + frais de revente + portage) ≥ 40 %. "
-             "Le plafond est calculé avec la valeur prudente en l'état et tous les frais renseignés. Le scénario stressé diminue la revente de 10 %.", "",
-             "| Adresse du bien | Descriptif du bien | Montant maximal du marteau | Estimation des frais | Montant acte en mains | Estimation de la revente | Montant de la plus-value | Temps de revente | Descriptif | Source | Analyse du marché complète |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
-    prospective = [r for r in rows if r["statut"] != "rejete"]
-    for row in prospective:
-        facts, finance = row["faits"], row.get("calcul_financier", {})
-        valuation = finance.get("hypotheses", {})
-        profit = money(finance.get("benefice_au_plafond_eur"))
-        if finance.get("marge_au_plafond_pct"):
-            profit += f" ; {finance['marge_au_plafond_pct']} % des coûts engagés (au plafond) ; stress {finance['marge_stressee_au_plafond_pct']} %"
-        description = (f"{row['statut']} ; {facts.get('occupation', 'inconnue')} ; audience {facts.get('date_vente', '?')} ; "
-                       f"adjugé {money(facts.get('prix_adjuge_eur'))} ; délai publié {facts.get('date_limite_surenchere', '?')}. "
-                       + "; ".join(row["a_verifier"]))
-        values = [row.get("adresse") or row["titre"], row["titre"], money(finance.get("plafond_marteau_eur")),
-                  money(finance.get("frais_acquisition_au_plafond_eur")), money(finance.get("acte_en_mains_au_plafond_eur")),
-                  money(finance.get("revente_prudente_eur")), profit, valuation.get("delai_revente_mois", "À documenter"),
-                  description, f"[Annonce]({row['url_annonce']})" + "".join(
-                      f" ; [{p['champ']} p. {p['page']}]({p['url']}#page={p['page']})"
-                      + (f" (contrôle antérieur : {p.get('controle_acces_utc', '?')})" if not p.get("consulte_ce_passage", True) else "")
-                      for p in row.get("preuves_documentaires", [])[:3]),
-                  valuation.get("analyse_marche", "À documenter : DVF et comparables locaux en l'état, liquidité, prix sur cinq ans et délai de revente.")]
-        lines.append("| " + " | ".join(cell(value) for value in values) + " |")
-    if not prospective:
-        lines += ["", "Aucun dossier retenu ou restant à vérifier dans les fiches récentes analysées."]
-    lines += ["", "## Rejets récents", "", "| Bien | Prix adjugé publié | Motif | Source |", "|---|---|---|---|"]
+             "## Dossiers nouveaux ou modifiés aujourd'hui", "",
+             "| Bien | Statut | Occupation | Audience | Prix publié (indicatif) | Contrôle | Source |",
+             "|---|---|---|---|---|---|---|"]
+    labels = {"retenu_sur_donnees_validees": "Libre confirmé", "a_verifier": "À vérifier", "rejete": "Rejeté"}
     for row in rows:
-        if row["statut"] == "rejete":
-            evidence_links = "".join(f" ; [Indice {p['champ']} p. {p['page']}]({p['url']}#page={p['page']})"
-                                     for p in row.get("indices_exclusion", [])[:3])
-            lines.append("| " + " | ".join(cell(x) for x in [row.get("adresse") or row["titre"],
-                         money(row["faits"].get("prix_adjuge_eur")), "; ".join(row["motifs_rejet"]), f"[Annonce]({row['url_annonce']})" + evidence_links]) + " |")
-    lines += ["", "## Sources effectivement contrôlées", "", "| Source | Accès | Liens | Audiences | Fiches | Incident |", "|---|---|---|---|---|---|"]
-    for source in report["sources"]:
+        facts = row["faits"]
+        control = "; ".join(row["motifs_rejet"] or row["a_verifier"]) or "Occupation libre confirmée"
+        evidence_links = "".join(f" ; [{p['champ']} p. {p['page']}]({p['url']}#page={p['page']})"
+                                 for p in row.get("preuves_documentaires", [])[:3])
+        values = [row.get("adresse") or row["titre"], labels.get(row["statut"], row["statut"]),
+                  facts.get("occupation", "inconnue"), facts.get("date_vente"), money(facts.get("prix_adjuge_eur")),
+                  control, f"[Annonce]({row['url_annonce']})" + evidence_links]
+        lines.append("| " + " | ".join(cell(value) for value in values) + " |")
+    if not rows:
+        lines += ["", "Aucun dossier nouveau ou modifié aujourd'hui."]
+    lines += ["", "## Sources productives ce passage", "", "| Source | Accès | Liens | Audiences | Fiches | Incident |", "|---|---|---|---|---|---|"]
+    productive_sources = [source for source in report["sources"] if source.get("liens_detectes")
+                          or source.get("pages_audiences_lues") or source.get("fiches_lues")]
+    for source in productive_sources:
         lines.append("| " + " | ".join(cell(x) for x in [f"[{source['nom']}]({source['url']})", source["statut"], source["liens_detectes"],
                      source["pages_audiences_lues"], source["fiches_lues"], source.get("erreur") or "—"]) + " |")
-    lines += ["", "## Pièces PDF consultées", "", "Les indices ci-dessous restent à vérifier et ne remplacent pas les validations du dossier.", "",
-              "| Pièce | Lecture | Pages lues au total | Pages restantes | Indices et pages | Incident |", "|---|---|---|---|---|---|"]
-    for doc in report.get("documents", []):
+    if not productive_sources:
+        lines += ["", "Aucune source productive pendant ce passage."]
+    daily_urls = {row["url_annonce"] for row in rows}
+    daily_documents = [doc for doc in report.get("documents", []) if daily_urls.intersection(doc.get("annonces", []))]
+    if daily_documents:
+        lines += ["", "## Pièces PDF liées aux dossiers du jour", "", "Les indices ci-dessous restent à vérifier.", "",
+                  "| Pièce | Lecture | Pages lues | Indices et pages | Incident |", "|---|---|---|---|---|"]
+    for doc in daily_documents:
         extracts = "; ".join(f"{p['champ']} : {p['valeur']} (p. {p['page']}, {p['methode']})" for p in doc.get("preuves", [])[:5])
         if doc.get("contradictions"):
             extracts += "; mentions multiples à contrôler : " + ", ".join(doc["contradictions"])
         lines.append("| " + " | ".join(cell(x) for x in [f"[Pièce]({doc['url']})", doc["statut"],
-                     f"{len(doc.get('pages_lues', []))}/{doc.get('pages_total', '?')}", doc.get("pages_restantes", "?"),
+                     f"{len(doc.get('pages_lues', []))}/{doc.get('pages_total', '?')}",
                      extracts or "Aucun indice ciblé extrait", doc.get("erreur") or "; ".join(x["erreur"] for x in doc.get("incidents_pages", [])) or "—"]) + " |")
-    older = [doc for doc in report.get("historique_documents", []) if not doc["consulte_ce_passage"] and doc.get("preuves")]
-    if older:
-        lines += ["", "## Indices conservés des passages précédents", "",
-                  "Ces pièces n'ont pas été relues ce passage. Leur date de contrôle est conservée et leurs indices restent à vérifier.", "",
-                  "| Pièce | Dernier accès réussi UTC | Indices et pages |", "|---|---|---|"]
-        for doc in older:
-            values = [f"[Pièce]({doc['url']})", doc.get("controle_acces_utc"),
-                      "; ".join(f"{p['champ']} : {p['valeur']} (p. {p['page']})" for p in doc["preuves"][:5])]
-            lines.append("| " + " | ".join(cell(x) for x in values) + " |")
     lines += ["", "## Couverture restante et contrôles", ""]
     lines += ["- " + warning for warning in report["limites"]]
     lines += ["", "Les pages PDF sont extraites dans les budgets indiqués, avec OCR pour les scans lorsque nécessaire. "
-              "Les indices gardent la référence de page ; leur attribution au bien et leur actualité restent à contrôler. "
-              "L'absence d'une mention de travaux ne prouve pas que le bien est revendable sans travaux. "
-              "La mise à prix ne remplace jamais le prix adjugé.", "",
-              "Règles de surenchère : [R322-50 à R322-55](https://www.legifrance.gouv.fr/codes/id/LEGISCTA000025939177) ; "
-              "[délais, article 642](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006411003). "
-              "Une date publiée reste à confirmer avec l'avocat et les pièces du dossier.", ""]
+               "Les indices gardent la référence de page ; leur attribution au bien et leur actualité restent à contrôler. "
+               "Seule la preuve que le bien est libre conditionne sa sélection automatique.", ""]
     (folder / "dernier.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -527,7 +505,8 @@ def run(args):
             candidates.append((priority, attempted, url))
     candidates.sort()
     chosen = [url for _, _, url in candidates[:args.max_details]]
-    failures, modified, details_read = 0, 0, 0
+    failures, modified, details_read, first_details = 0, 0, 0, 0
+    updated_urls = set()
 
     def read_detail(url):
         try:
@@ -550,7 +529,12 @@ def run(args):
                 incidents.append(error)
             else:
                 details_read += bool(parsed.get("detail_lu_ce_passage"))
-                modified += bool(previous.get("empreinte_contenu") and previous["empreinte_contenu"] != parsed.get("empreinte_contenu"))
+                first_detail = bool(parsed.get("empreinte_contenu") and not previous.get("empreinte_contenu"))
+                changed = bool(previous.get("empreinte_contenu") and previous["empreinte_contenu"] != parsed.get("empreinte_contenu"))
+                modified += changed
+                first_details += first_detail
+                if first_detail or changed:
+                    updated_urls.add(url)
                 records[url] = parsed
                 state.setdefault("fiches", {})[url] = parsed
                 for source in parsed["sources"]:
@@ -604,7 +588,10 @@ def run(args):
                  if not urlparse(url).path.startswith("/ventes-judiciaires-immobilieres/")]
     recent = [row for row in qualified if row["jours_apres_audience"] is not None and 1 <= row["jours_apres_audience"] <= 4]
     recent.sort(key=lambda x: (x["statut"], -(x.get("jours_apres_audience") or 0), x.get("adresse") or x["titre"]))
-    new_count = sum(url not in state.get("liens", {}) for url in records)
+    new_urls = {url for url in records if url not in state.get("liens", {})}
+    new_count = len(new_urls)
+    daily_urls = new_urls | updated_urls
+    daily = [row for row in recent if row["url_annonce"] in daily_urls]
     for url, record in records.items():
         state.setdefault("liens", {})[url] = {"premiere_detection": state.get("liens", {}).get(url, {}).get("premiere_detection", stamp), "dernier_controle": stamp}
     state["version"], state["dernier_passage"] = 1, stamp
@@ -619,12 +606,12 @@ def run(args):
               "Les autres listes ne sont pas paginées automatiquement.",
               "Ces pages ne constituent pas une couverture exhaustive de la France ni des 706 fiches de la base d'avocats.",
               "Le registre central Registre_Adjudications.xlsx n'est pas modifié par ce programme.",
-              "Les publications restent de niveau C tant que les pièces et hypothèses ne sont pas vérifiées et renseignées dans estimations.csv."]
+              "Une opportunité n'est retenue que si l'occupation libre est confirmée ; les autres données publiées restent indicatives."]
     limits.append(f"PDF : budget de {max_documents} documents, {max_pdf_pages} pages et {max_ocr_pages} pages OCR ; "
                   f"au plus 8 pages d'un document par passage, avec reprise des pages restantes. "
                   f"{max(0, len(tasks) - max_documents)} documents détectés non consultés ce passage ; {pdf_count} liens directs vers un PDF.")
     limits.append("Les indices extraits des pièces restent à vérifier : des PDF peuvent comporter plusieurs biens ou des mentions anciennes. "
-                  "Ils ne remplacent ni la confirmation du dossier ni les frais et la valeur de revente documentés.")
+                  "Ils ne remplacent pas la confirmation que le bien est libre.")
     if remaining_pages:
         limits.append(f"{len(remaining_pages)} pages d'audience restent en file après le budget.")
     if incidents:
@@ -633,14 +620,16 @@ def run(args):
         "version": 1, "controle_utc": stamp, "controle_paris": now.astimezone(PARIS).isoformat(),
         "comptages": {"sources_actives": len(sources), "sources_ok": sum(x["statut"] == "ok" for x in logs),
                       "liens_distincts": len(records), "nouveaux_liens": new_count, "audiences_lues": sum(x["pages_audiences_lues"] for x in logs),
-                      "fiches_lues": details_read, "fiches_en_echec": failures, "fiches_modifiees": modified,
-                      "dossiers_recents": len(recent), "retenus": sum(x["statut"] == "retenu_sur_donnees_validees" for x in recent),
-                      "a_verifier": sum(x["statut"] == "a_verifier" for x in recent), "rejetes_recents": sum(x["statut"] == "rejete" for x in recent),
+                      "fiches_lues": details_read, "fiches_en_echec": failures,
+                      "fiches_nouvellement_lues": first_details, "fiches_modifiees": modified,
+                      "dossiers_recents_observes": len(recent), "dossiers_recents": len(daily),
+                      "retenus": sum(x["statut"] == "retenu_sur_donnees_validees" for x in daily),
+                      "a_verifier": sum(x["statut"] == "a_verifier" for x in daily), "rejetes_recents": sum(x["statut"] == "rejete" for x in daily),
                       "sans_date": unknown, "liens_pdf_a_lire": pdf_count, "fiches_candidates_non_lues": max(0, len(candidates) - len(chosen)),
                       "documents_pdf_consultes": sum(x["statut"] in {"lu", "partiel"} for x in documents),
                       "documents_pdf_complets": sum(x["statut"] == "lu" for x in documents),
                       "documents_pdf_detectes": len(tasks), **reader.metrics, **fetcher.metrics},
-        "dossiers": recent, "sources": logs, "incidents": incidents, "limites": limits, "documents": documents,
+        "dossiers": daily, "sources": logs, "incidents": incidents, "limites": limits, "documents": documents,
         "delais_acces": state.get("acces", {}), "historique_documents": history,
     }
     save_report(Path(args.output), report)
@@ -676,4 +665,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -188,20 +188,14 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
         rejected.append("vente retirée, reportée ou non requise")
     if facts.get("vente_amiable"):
         rejected.append("vente amiable, hors scénario d'adjudication")
-    if facts.get("seconde_adjudication"):
-        rejected.append("vente sur surenchère : nouvelle surenchère non retenue")
-    if facts.get("surenchere_impossible"):
-        rejected.append("surenchère annoncée impossible")
     if facts.get("occupation") in {"occupe", "loue", "contradictoire"}:
         rejected.append("occupation incompatible ou contradictoire")
     elif facts.get("occupation") != "libre":
         missing.append("preuve d'un bien libre")
-    if facts.get("travaux") == "necessaires":
-        rejected.append("travaux nécessaires à la revente en l'état")
-    else:
-        missing.append("état et diagnostics compatibles avec une revente sans travaux")
-    # Une pièce rattachée au dossier peut écarter un candidat en l'état, jamais
-    # valider son occupation, ses frais ou la rentabilité. La provenance reste visible.
+
+    # Une pièce rattachée au dossier peut écarter un bien occupé, mais elle ne
+    # valide jamais à elle seule que le bien est libre. Les mentions de travaux,
+    # de prix, de surenchère et de rentabilité restent informatives et non bloquantes.
     attached_urls = set(record.get("documents", [])) | {d.get("url") for d in record.get("documents_extraits", [])}
     for proof in record.get("preuves_documentaires", []):
         if proof.get("url") not in attached_urls or proof.get("methode") not in {"texte", "ocr"}:
@@ -215,63 +209,28 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
             continue
         field, value = proof.get("champ"), proof.get("valeur")
         negative = field == "occupation" and value in {"occupe", "loue", "contradictoire"}
-        negative = negative or (field == "travaux" and value == "necessaires")
         if negative:
             rejected.append(f"indice documentaire incompatible : {field}={value}, p. {proof.get('page', '?')} ({proof['methode']}) — identité et actualité à contrôler")
             result["indices_exclusion"].append({key: proof.get(key) for key in ["champ", "valeur", "url", "page", "methode", "controle_acces_utc"]})
-    price = amount(facts.get("prix_adjuge_eur"))
-    if price is None or price <= 0:
-        missing.append("prix adjugé (la mise à prix ne le remplace pas)")
-    else:
-        result["surenchere_minimale_eur"] = str((price * Decimal("1.10")).quantize(Decimal("0.01"), rounding=ROUND_UP))
-    deadline = None
-    if facts.get("date_limite_surenchere"):
-        try:
-            deadline = date.fromisoformat(facts["date_limite_surenchere"])
-        except ValueError:
-            pass
-    if deadline and deadline < today:
-        rejected.append("délai publié expiré")
-    elif deadline:
-        missing.append("confirmation avocat du délai et de la recevabilité de la surenchère")
-    else:
-        missing.append("date limite et recevabilité de la surenchère")
-    if not record.get("detail_lu_ce_passage"):
-        missing.append("fiche détaillée non relue lors de ce passage")
     if record.get("erreur_detail"):
-        missing.append("fiche inaccessible : " + record["erreur_detail"])
+        rejected.append("fiche inaccessible lors de ce passage")
 
-    # Une publication peut donner un indice; seule une validation documentée
-    # récente permet de lever les contrôles essentiels et de calculer un plafond.
-    validation_ok = False
+    # Une validation manuelle récente peut confirmer l'occupation, sans exiger
+    # les anciens champs financiers, d'état du bien ou de délai de surenchère.
     if valuation:
+        validation_ok = False
         try:
             checked = date.fromisoformat(valuation.get("date_verification", ""))
             validation_ok = 0 <= (today - checked).days <= 7
-        except ValueError:
+        except (ValueError, TypeError):
             pass
-        if not validation_ok:
-            missing.append("validation absente ou âgée de plus de 7 jours")
-        elif all(valuation.get(k) for k in ["source_occupation", "source_etat", "source_delai", "source_valeur", "source_frais"]):
-            if valuation.get("occupation") == "libre" and facts.get("occupation") not in {"occupe", "loue", "contradictoire"}:
-                missing = [x for x in missing if x != "preuve d'un bien libre"]
-            if valuation.get("etat_sans_travaux") == "oui" and facts.get("travaux") != "necessaires":
-                missing = [x for x in missing if not x.startswith("état et diagnostics")]
-            if valuation.get("surenchere_confirmee") == "oui" and deadline and deadline >= today:
-                missing = [x for x in missing if not x.startswith("confirmation avocat")]
-            if price and price > 0:
-                result["calcul_financier"] = economics(price, valuation)
-                if result["calcul_financier"].get("compatible_40_pct") is False:
-                    rejected.append("plancher de surenchère supérieur au plafond compatible avec 40 %")
-                if result["calcul_financier"].get("donnees_manquantes"):
-                    missing.append("frais ou valeur de revente incomplets")
-        else:
-            missing.append("sources de validation financière, occupation, état ou délai manquantes")
-    if not result.get("calcul_financier"):
-        missing.append("valeur prudente, frais d'acquisition, revente et portage documentés pour le seuil de 40 %")
+        if (validation_ok and valuation.get("source_occupation")
+                and valuation.get("occupation") == "libre"
+                and facts.get("occupation") not in {"occupe", "loue", "contradictoire"}):
+            missing = [item for item in missing if item != "preuve d'un bien libre"]
+
     result["motifs_rejet"] = list(dict.fromkeys(rejected))
     result["a_verifier"] = list(dict.fromkeys(missing))
     result["statut"] = "rejete" if rejected else ("a_verifier" if result["a_verifier"] else "retenu_sur_donnees_validees")
-    result["niveau_preuve"] = "validation documentée renseignée" if result["statut"] == "retenu_sur_donnees_validees" else "C — publication à contrôler"
+    result["niveau_preuve"] = "occupation libre confirmée" if result["statut"] == "retenu_sur_donnees_validees" else "C — publication à contrôler"
     return result
-

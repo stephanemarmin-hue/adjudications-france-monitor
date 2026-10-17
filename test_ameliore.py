@@ -219,10 +219,10 @@ class DocumentTests(unittest.TestCase):
             report = json.loads((root / "rapports/dernier.json").read_text())
             state = json.loads((root / "etat.json").read_text())
             self.assertEqual(report["comptages"]["documents_pdf_complets"], 1)
-            self.assertEqual(report["comptages"]["retenus"], 0)
+            self.assertEqual(report["comptages"]["retenus"], 1)
             self.assertEqual(report["dossiers"][0]["preuves_documentaires"][0]["page"], 1)
             self.assertIn(PDF_URL, state["pieces"])
-            self.assertIn("Pièces PDF consultées", (root / "rapports/dernier.md").read_text())
+            self.assertIn("Pièces PDF liées aux dossiers du jour", (root / "rapports/dernier.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

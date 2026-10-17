@@ -74,9 +74,12 @@ class MoneyAndDateTests(unittest.TestCase):
 
 
 class ClassificationTests(unittest.TestCase):
-    def test_no_automatic_selection_without_documented_valuation(self):
-        self.assertEqual(classify(record(), NOW)["statut"], "a_verifier")
-        self.assertEqual(classify(record(), NOW, valuation())["statut"], "retenu_sur_donnees_validees")
+    def test_free_occupation_is_the_only_required_business_proof(self):
+        self.assertEqual(classify(record(), NOW)["statut"], "retenu_sur_donnees_validees")
+        unknown = record()
+        unknown["faits"]["occupation"] = "inconnue"
+        self.assertEqual(classify(unknown, NOW)["statut"], "a_verifier")
+        self.assertEqual(classify(unknown, NOW, valuation())["statut"], "retenu_sur_donnees_validees")
 
     def test_occupancy_negation_future_and_contradiction(self):
         self.assertEqual(occupancy("Le bien est libre de toute occupation")[0], "libre")
@@ -87,11 +90,13 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(occupancy("Libre de toute occupation. Les biens sont occupés.")[0], "contradictoire")
         self.assertEqual(occupancy("Filtres Libre Occupé Loué")[0], "inconnue")
 
-    def test_occupied_and_works_cannot_be_overridden(self):
-        for field, value in [("occupation", "occupe"), ("travaux", "necessaires")]:
-            row = record()
-            row["faits"][field] = value
-            self.assertEqual(classify(row, NOW, valuation())["statut"], "rejete")
+    def test_occupied_is_rejected_but_works_are_informative(self):
+        row = record()
+        row["faits"]["occupation"] = "occupe"
+        self.assertEqual(classify(row, NOW, valuation())["statut"], "rejete")
+        row = record()
+        row["faits"]["travaux"] = "necessaires"
+        self.assertEqual(classify(row, NOW)["statut"], "retenu_sur_donnees_validees")
         self.assertEqual(works("Maison en cours de construction")[0], "necessaires")
 
     def test_window_uses_paris_not_utc_and_includes_j4(self):
@@ -103,20 +108,22 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(classify(row, late_utc)["jours_apres_audience"], 1)
         self.assertEqual(classify(row, NOW)["statut"], "rejete")
 
-    def test_expired_deadline_second_auction_and_excess_price(self):
+    def test_deadline_second_auction_and_price_are_informative(self):
         for field, value in [("date_limite_surenchere", "2026-10-06"), ("seconde_adjudication", True),
                              ("prix_adjuge_eur", "200000")]:
             row = record()
             row["faits"][field] = value
-            self.assertEqual(classify(row, NOW, valuation())["statut"], "rejete")
+            self.assertEqual(classify(row, NOW)["statut"], "retenu_sur_donnees_validees")
 
-    def test_stale_validation_and_unread_detail(self):
+    def test_stale_validation_cannot_prove_free_but_unread_detail_keeps_known_fact(self):
         val = valuation()
         val["date_verification"] = "2026-09-29"
-        self.assertEqual(classify(record(), NOW, val)["statut"], "a_verifier")
+        unknown = record()
+        unknown["faits"]["occupation"] = "inconnue"
+        self.assertEqual(classify(unknown, NOW, val)["statut"], "a_verifier")
         row = record()
         row["detail_lu_ce_passage"] = False
-        self.assertEqual(classify(row, NOW, valuation())["statut"], "a_verifier")
+        self.assertEqual(classify(row, NOW)["statut"], "retenu_sur_donnees_validees")
 
 
 class ParserAndStateTests(unittest.TestCase):
@@ -181,6 +188,7 @@ class ParserAndStateTests(unittest.TestCase):
                 report = json.loads((root / "rapports/dernier.json").read_text())
                 self.assertEqual(report["comptages"]["nouveaux_liens"], 0)
                 self.assertEqual(report["comptages"]["fiches_modifiees"], 0)
+                self.assertEqual(report["dossiers"], [])
                 (root / "detail.html").write_text(DETAIL.replace("50 000,00 euros", "60 000,00 euros"))
                 self.assertEqual(run(args), 0)
             report = json.loads((root / "rapports/dernier.json").read_text())
@@ -257,20 +265,23 @@ class FilterRegressionTests(unittest.TestCase):
                 self.assertEqual(works(phrase)[0], 'a_verifier')
         self.assertEqual(works('Pas de cave. Travaux nécessaires.')[0], 'necessaires')
 
-    def test_argis_like_listing_is_rejected_despite_free_status(self):
+    def test_argis_like_listing_remains_selected_when_free(self):
         facts = facts_from_text('Vente le 6 octobre 2026. Adjudication : 26 000 euros. Une maison en mauvais état. Libre de toute occupation.', 'licitor.com', detail=True)
-        self.assertEqual(classify({**record(), 'faits': facts}, NOW)['statut'], 'rejete')
+        self.assertEqual(classify({**record(), 'faits': facts}, NOW)['statut'], 'retenu_sur_donnees_validees')
 
-    def test_recent_document_excludes_but_never_validates_an_opportunity(self):
+    def test_recent_document_only_excludes_incompatible_occupation(self):
         url = 'https://exemple.fr/pv.pdf'
-        for text, field in [('Les lieux sont loués et occupés.', 'occupation'), ('Les murs sont en mauvais état. Équipements déposés.', 'travaux')]:
-            with self.subTest(field=field):
-                proofs = [{**p, 'controle_acces_utc': NOW.isoformat()} for p in page_evidence(text, url, 9, 'ocr')]
-                selected = classify({**record(), 'documents': [url], 'preuves_documentaires': proofs}, NOW)
-                self.assertEqual(selected['statut'], 'rejete')
-                self.assertTrue(any('indice documentaire incompatible' in m and 'p. 9 (ocr)' in m for m in selected['motifs_rejet']))
-                self.assertEqual(selected['indices_exclusion'][0]['url'], url)
-                self.assertIn('état et diagnostics compatibles avec une revente sans travaux', selected['a_verifier'])
+        occupied = [{**p, 'controle_acces_utc': NOW.isoformat()}
+                    for p in page_evidence('Les lieux sont loués et occupés.', url, 9, 'ocr')]
+        selected = classify({**record(), 'documents': [url], 'preuves_documentaires': occupied}, NOW)
+        self.assertEqual(selected['statut'], 'rejete')
+        self.assertTrue(any('indice documentaire incompatible' in m and 'p. 9 (ocr)' in m for m in selected['motifs_rejet']))
+        self.assertEqual(selected['indices_exclusion'][0]['url'], url)
+        works_proofs = [{**p, 'controle_acces_utc': NOW.isoformat()}
+                        for p in page_evidence('Les murs sont en mauvais état. Équipements déposés.', url, 9, 'ocr')]
+        selected = classify({**record(), 'documents': [url], 'preuves_documentaires': works_proofs}, NOW)
+        self.assertEqual(selected['statut'], 'retenu_sur_donnees_validees')
+        self.assertEqual(selected['indices_exclusion'], [])
 
     def test_stale_foreign_and_undated_document_does_not_exclude(self):
         url = 'https://exemple.fr/pv.pdf'
@@ -278,7 +289,7 @@ class FilterRegressionTests(unittest.TestCase):
         for stamp, urls in [('2026-09-01T10:00:00+00:00', [url]), (NOW.isoformat(), []), ('', [url]), ('2026-10-07', [url])]:
             with self.subTest(stamp=stamp, urls=urls):
                 selected = classify({**record(), 'documents': urls, 'preuves_documentaires': [{**base, 'controle_acces_utc': stamp}]}, NOW)
-                self.assertEqual(selected['statut'], 'a_verifier')
+                self.assertEqual(selected['statut'], 'retenu_sur_donnees_validees')
 
     @patch('pieces.shutil.which', return_value='outil')
     def test_extraction_upgrade_reprocesses_old_pdf_cache(self, _):
@@ -292,4 +303,3 @@ class FilterRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
