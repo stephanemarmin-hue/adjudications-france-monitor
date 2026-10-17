@@ -386,10 +386,11 @@ def save_report(folder, report):
     for row in rows:
         facts = row["faits"]
         control = "; ".join(row["motifs_rejet"] or row["a_verifier"]) or "Occupation libre confirmée"
+        published_price = money(facts.get("prix_adjuge_eur")) if facts.get("prix_adjuge_eur") not in {None, ""} else "Non publié"
         evidence_links = "".join(f" ; [{p['champ']} p. {p['page']}]({p['url']}#page={p['page']})"
                                  for p in row.get("preuves_documentaires", [])[:3])
         values = [row.get("adresse") or row["titre"], labels.get(row["statut"], row["statut"]),
-                  facts.get("occupation", "inconnue"), facts.get("date_vente"), money(facts.get("prix_adjuge_eur")),
+                  facts.get("occupation", "inconnue"), facts.get("date_vente"), published_price,
                   control, f"[Annonce]({row['url_annonce']})" + evidence_links]
         lines.append("| " + " | ".join(cell(value) for value in values) + " |")
     if not rows:
