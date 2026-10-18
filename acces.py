@@ -5,12 +5,21 @@ import threading
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from http.client import RemoteDisconnected
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from monitor import MAX_BYTES, TIMEOUT_SECONDS
+
+
+REQUEST_HEADERS = {
+    "User-Agent": "AdjudicationsFranceMonitor/0.3 (veille de pages publiques; contact via le dépôt GitHub)",
+    "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.7",
+    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.5",
+    "Cache-Control": "no-cache",
+}
 
 
 def utc_iso(seconds):
@@ -45,13 +54,16 @@ class PdfDocument(Exception):
 
 
 class Fetcher:
-    def __init__(self, fixture_map=None, pause=0.8, access_state=None, clock=None):
+    def __init__(self, fixture_map=None, pause=0.8, access_state=None, clock=None, retries=2, sleeper=None):
         self.fixture_map, self.pause = fixture_map, pause
         self.access_state = access_state if access_state is not None else {}
         self.clock = clock or time.time
+        self.retries = max(0, retries)
+        self.sleeper = sleeper or time.sleep
         self.locks, self.last_request, self.memo = {}, {}, {}
         self.guard = threading.Lock()
-        self.metrics = {"requetes_http": 0, "reponses_429": 0, "acces_differes": 0}
+        self.metrics = {"requetes_http": 0, "reponses_429": 0, "acces_differes": 0,
+                        "tentatives_reprises": 0, "reprises_reussies": 0}
 
     def _count(self, name):
         with self.guard:
@@ -84,32 +96,49 @@ class Fetcher:
                     raise AccessDeferred(host, restriction)
             wait = self.pause - (time.monotonic() - self.last_request.get(host, 0))
             if wait > 0:
-                time.sleep(wait)
+                self.sleeper(wait)
             self.last_request[host] = time.monotonic()
-            request = Request(url, headers={"User-Agent": "AdjudicationsFranceMonitor/0.2 (public page monitor)"})
-            self._count("requetes_http")
-            try:
-                with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-                    resolved = response.geturl()
-                    kind = response.headers.get("Content-Type", "")
-                    body = response.read(MAX_BYTES + 1)
-                    if len(body) > MAX_BYTES:
-                        raise ValueError("page ou document dépassant 10 Mo")
-                    encoding = response.headers.get_content_charset() or "utf-8"
-            except HTTPError as exc:
-                if exc.code == 429 or exc.code == 403 or 500 <= exc.code <= 599:
-                    previous = (restriction or {}).get("echecs_consecutifs", 0)
-                    fallback = 21600 if exc.code == 403 else (3600 if exc.code == 429 else min(3600, 300 * 2 ** min(previous, 4)))
-                    delay = retry_after(exc.headers.get("Retry-After") if exc.headers else None, self.clock(), fallback)
-                    # Un refus 403 n'est pas réessayé immédiatement, même sans Retry-After.
-                    if exc.code == 403:
-                        delay = max(21600, delay)
-                    self.access_state[host] = {"attendre_jusqua_utc": utc_iso(self.clock() + delay),
-                                               "code_http": exc.code, "dernier_echec_utc": utc_iso(self.clock()),
-                                               "echecs_consecutifs": previous + 1}
-                    if exc.code == 429:
-                        self._count("reponses_429")
-                raise
+            retried = False
+            for attempt in range(self.retries + 1):
+                request = Request(url, headers=REQUEST_HEADERS)
+                self._count("requetes_http")
+                try:
+                    with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+                        resolved = response.geturl()
+                        kind = response.headers.get("Content-Type", "") or ""
+                        body = response.read(MAX_BYTES + 1)
+                        if len(body) > MAX_BYTES:
+                            raise ValueError("page ou document dépassant 10 Mo")
+                        encoding = response.headers.get_content_charset() or "utf-8"
+                    if retried:
+                        self._count("reprises_reussies")
+                    break
+                except HTTPError as exc:
+                    # Une erreur serveur peut être ponctuelle ; 403 et 429 ne sont jamais forcées.
+                    if 500 <= exc.code <= 599 and attempt < self.retries:
+                        retried = True
+                        self._count("tentatives_reprises")
+                        self.sleeper(min(4, 2 ** attempt))
+                        continue
+                    if exc.code == 429 or exc.code == 403 or 500 <= exc.code <= 599:
+                        previous = (restriction or {}).get("echecs_consecutifs", 0)
+                        fallback = 21600 if exc.code == 403 else (3600 if exc.code == 429 else min(3600, 300 * 2 ** min(previous, 4)))
+                        delay = retry_after(exc.headers.get("Retry-After") if exc.headers else None, self.clock(), fallback)
+                        # Un refus 403 n'est pas réessayé immédiatement, même sans Retry-After.
+                        if exc.code == 403:
+                            delay = max(21600, delay)
+                        self.access_state[host] = {"attendre_jusqua_utc": utc_iso(self.clock() + delay),
+                                                   "code_http": exc.code, "dernier_echec_utc": utc_iso(self.clock()),
+                                                   "echecs_consecutifs": previous + 1}
+                        if exc.code == 429:
+                            self._count("reponses_429")
+                    raise
+                except (URLError, TimeoutError, ConnectionError, RemoteDisconnected):
+                    if attempt >= self.retries:
+                        raise
+                    retried = True
+                    self._count("tentatives_reprises")
+                    self.sleeper(min(4, 2 ** attempt))
             self.access_state.pop(host, None)
             self.memo[url] = body, resolved, kind, encoding
             return self.memo[url]
@@ -118,9 +147,14 @@ class Fetcher:
         body, resolved, kind, encoding = self._resource(url)
         if "application/pdf" in kind.lower() or body.startswith(b"%PDF-"):
             raise PdfDocument("PDF accessible — lecture documentaire")
-        if "html" not in kind.lower():
+        sample = body.lstrip()[:1024].lower()
+        looks_like_html = any(marker in sample for marker in (b"<!doctype html", b"<html", b"<head", b"<body", b"<main"))
+        if "html" not in kind.lower() and not looks_like_html:
             raise ValueError("contenu non HTML : " + kind)
-        return body.decode(encoding, errors="replace"), resolved
+        try:
+            return body.decode(encoding, errors="replace"), resolved
+        except LookupError:
+            return body.decode("utf-8", errors="replace"), resolved
 
     def get_pdf(self, url):
         body, resolved, _, _ = self._resource(url)

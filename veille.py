@@ -173,6 +173,26 @@ def seed_records(markup, page_url, source, timestamp):
     return records, doc
 
 
+def pagination_pages(markup, page_url):
+    """Trouve uniquement le lien explicite vers la page suivante d'une liste."""
+    doc = Document(markup)
+    current = urlparse(page_url)
+    pages = set()
+    labels = {"suivant", "suivante", "page suivante", "next", ">", ">>", "›", "»"}
+    for node in doc.nodes:
+        if node.tag != "a" or not node.attrs.get("href"):
+            continue
+        url = canonical(node.attrs["href"], page_url)
+        parsed = urlparse(url)
+        if not url or parsed.netloc != current.netloc or url == canonical(page_url, page_url):
+            continue
+        rel = normalize(node.attrs.get("rel", ""))
+        label = normalize(node.text()).strip()
+        if "next" in rel.split() or label in labels:
+            pages.add(url)
+    return sorted(pages)
+
+
 def hearing_records(markup, page_url, source, timestamp):
     doc = Document(markup)
     container = doc.find(lambda x: x.attrs.get("id") == "hearings-list")
@@ -372,6 +392,66 @@ def cell(value):
     return str("À vérifier" if value is None or value == "" else value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
 
 
+def source_interventions(state, logs, timestamp):
+    """Mémorise la santé des sources et ne demande une action qu'en cas de blocage utile."""
+    health = state.setdefault("sante_sources", {})
+    active_urls = {log["url"] for log in logs}
+    for url in set(health) - active_urls:
+        del health[url]
+    interventions = []
+    for log in logs:
+        url = log["url"]
+        previous = health.get(url, {})
+        failures = int(previous.get("echecs_consecutifs", 0))
+        empty = int(previous.get("sans_lien_consecutifs", 0))
+        ever_productive = bool(previous.get("a_deja_fourni_des_liens")) or bool(log.get("liens_detectes"))
+        status = log.get("statut", "")
+        if status == "ok":
+            failures, empty = 0, 0
+        elif status.startswith("aucun lien"):
+            failures, empty = 0, empty + 1
+        else:
+            failures, empty = failures + 1, 0
+        current = {
+            "nom": log["nom"], "url": url, "dernier_statut": status,
+            "derniere_erreur": log.get("erreur", ""), "dernier_controle_utc": timestamp,
+            "echecs_consecutifs": failures, "sans_lien_consecutifs": empty,
+            "a_deja_fourni_des_liens": ever_productive,
+        }
+        if status == "ok" and log.get("liens_detectes"):
+            current["derniere_reussite_utc"] = timestamp
+        elif previous.get("derniere_reussite_utc"):
+            current["derniere_reussite_utc"] = previous["derniere_reussite_utc"]
+        health[url] = current
+
+        error = normalize(log.get("erreur", ""))
+        permanent = any(marker in error for marker in ("http error 404", "name or service not known", "no such host", "getaddrinfo failed"))
+        requires_help = permanent or failures >= 3 or (empty >= 7 and ever_productive)
+        if not requires_help:
+            continue
+        if "404" in error:
+            problem = "La page surveillée n'existe plus (HTTP 404)."
+            action = "Ouvrir le lien, retrouver la nouvelle rubrique de ventes et transmettre sa nouvelle adresse."
+        elif any(marker in error for marker in ("name or service not known", "no such host", "getaddrinfo failed")):
+            problem = "Le nom de domaine ne répond plus."
+            action = "Vérifier si le site a changé d'adresse et transmettre le nouveau lien."
+        elif status.startswith("aucun lien"):
+            problem = f"Aucune annonce détectée depuis {empty} passages consécutifs alors que cette source en fournissait."
+            action = "Ouvrir la page et vérifier si la rubrique a changé ou si elle ne publie simplement aucune vente."
+        elif "403" in error:
+            problem = f"Accès refusé ou différé depuis {failures} passages consécutifs."
+            action = "Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise."
+        else:
+            problem = f"Lecture impossible ou partielle depuis {failures} passages consécutifs : {log.get('erreur') or status}."
+            action = "Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur."
+        interventions.append({
+            "priorite": "urgente" if permanent else "à vérifier",
+            "source": log["nom"], "url": url, "statut": status,
+            "passages_consecutifs": max(failures, empty), "probleme": problem, "action": action,
+        })
+    return sorted(interventions, key=lambda item: (item["priorite"] != "urgente", item["source"]))
+
+
 def save_report(folder, report):
     folder.mkdir(parents=True, exist_ok=True)
     atomic_json(folder / "dernier.json", report)
@@ -391,7 +471,7 @@ def save_report(folder, report):
             output["pieces_dossier"] = "; ".join(row.get("documents", []))
             writer.writerow(output)
     with (folder / "sources.csv").open("w", encoding="utf-8-sig", newline="") as stream:
-        cols = ["nom", "url", "statut", "liens_detectes", "pages_audiences_lues", "fiches_lues", "erreur", "controle_utc"]
+        cols = ["nom", "url", "statut", "liens_detectes", "pages_listes_lues", "pages_audiences_lues", "fiches_lues", "erreur", "controle_utc"]
         writer = csv.DictWriter(stream, fieldnames=cols, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(report["sources"])
@@ -402,14 +482,24 @@ def save_report(folder, report):
              f"{count['rejetes']} rejet(s).", "",
              f"Le moteur suit {count.get('dossiers_suivis_observes', 0)} dossier(s), quelle que soit la date de l'enchère ; "
              "seuls ceux détectés ou enrichis pendant ce passage figurent ci-dessous. L'historique complet reste conservé dans le catalogue.", "",
-             f"{count['sources_ok']}/{count['sources_actives']} pages sources accessibles ; {count['liens_distincts']} liens distincts ; "
+             f"{count.get('sources_accessibles', count['sources_ok'])}/{count['sources_actives']} pages sources accessibles ; "
+             f"{count['liens_distincts']} liens distincts ; "
              f"{count['audiences_lues']} pages d'audience et {count['fiches_lues']} fiches détaillées lues.", "",
              f"Nouveautés : {count['nouveaux_liens']} liens ; {count.get('fiches_nouvellement_lues', 0)} fiches lues pour la première fois ; "
              f"{count['fiches_modifiees']} fiches modifiées depuis le passage précédent.", "",
              f"Pièces : {count.get('documents_pdf_consultes', 0)} PDF accessibles ; {count.get('pages_pdf_traitees', 0)} pages traitées ce passage, "
              f"{count.get('pages_pdf_extraites', 0)} lues, dont {count.get('pages_ocr', 0)} par OCR. "
              f"{count.get('acces_differes', 0)} requêtes différées après une limite ou un refus d'accès.", "",
+             f"Interventions : **{count.get('interventions_requises', 0)} demande(s)** nécessitent une vérification humaine.", "",
              "Le nombre de liens inclut des audiences et des annonces anciennes ou futures. La couverture est limitée aux pages listées et au budget de lecture indiqué ci-dessous.", "",
+             "## Interventions requises", "",
+             "| Priorité | Source | Problème | Action demandée |", "|---|---|---|---|"]
+    for item in report.get("interventions", []):
+        lines.append("| " + " | ".join(cell(value) for value in [item["priorite"], f"[{item['source']}]({item['url']})",
+                     item["probleme"], item["action"]]) + " |")
+    if not report.get("interventions"):
+        lines += ["", "Aucune intervention requise."]
+    lines += ["",
              "## Dossiers détectés ou enrichis aujourd'hui", "",
              "| Bien | Statut | Mise à prix | Date de l'enchère | Occupation | Nouveaux éléments | Pièces du dossier | Source |",
              "|---|---|---|---|---|---|---|---|"]
@@ -426,12 +516,12 @@ def save_report(folder, report):
         lines.append("| " + " | ".join(cell(value) for value in values) + " |")
     if not rows:
         lines += ["", "Aucun dossier détecté ou enrichi aujourd'hui."]
-    lines += ["", "## Sources productives ce passage", "", "| Source | Accès | Liens | Audiences | Fiches | Incident |", "|---|---|---|---|---|---|"]
+    lines += ["", "## Sources productives ce passage", "", "| Source | Accès | Liens | Listes | Audiences | Fiches | Incident |", "|---|---|---|---|---|---|---|"]
     productive_sources = [source for source in report["sources"] if source.get("liens_detectes")
                           or source.get("pages_audiences_lues") or source.get("fiches_lues")]
     for source in productive_sources:
         lines.append("| " + " | ".join(cell(x) for x in [f"[{source['nom']}]({source['url']})", source["statut"], source["liens_detectes"],
-                     source["pages_audiences_lues"], source["fiches_lues"], source.get("erreur") or "—"]) + " |")
+                     source.get("pages_listes_lues", 0), source["pages_audiences_lues"], source["fiches_lues"], source.get("erreur") or "—"]) + " |")
     if not productive_sources:
         lines += ["", "Aucune source productive pendant ce passage."]
     daily_urls = {row["url_annonce"] for row in rows}
@@ -452,6 +542,14 @@ def save_report(folder, report):
                "Les indices gardent la référence de page ; leur attribution au bien et leur actualité restent à contrôler. "
                "La sélection automatique exige une occupation libre confirmée et une mise à prix publiée inférieure ou égale à 60 000 €.", ""]
     (folder / "dernier.md").write_text("\n".join(lines), encoding="utf-8")
+    alert_lines = ["# Interventions requises", "", f"Contrôle : **{report['controle_paris']}** (Europe/Paris).", ""]
+    if report.get("interventions"):
+        for index, item in enumerate(report["interventions"], 1):
+            alert_lines += [f"## {index}. {item['source']} — {item['priorite']}", "", item["probleme"], "",
+                            f"Action : {item['action']}", "", f"Lien direct : [{item['url']}]({item['url']})", ""]
+    else:
+        alert_lines.append("Aucune intervention requise.")
+    (folder / "interventions.md").write_text("\n".join(alert_lines), encoding="utf-8")
 
 
 def run(args):
@@ -469,26 +567,42 @@ def run(args):
     fetcher = Fetcher(fixture_map, pause=args.pause, access_state=state.setdefault("acces", {}))
     sources = load_sources()
     records, logs, incidents = {}, [], []
+    max_listing_pages = getattr(args, "max_listing_pages", 3)
 
     def listing(source):
         log = {**source, "controle_utc": stamp, "statut": "ok", "liens_detectes": 0,
-               "pages_audiences_lues": 0, "fiches_lues": 0, "erreur": ""}
-        try:
-            markup, resolved = fetcher.get(source["url"])
-            incoming, _ = seed_records(markup, resolved, source, stamp)
-            log["liens_detectes"] = len(incoming)
-            if not incoming:
-                log["statut"] = "aucun lien détecté — structure à contrôler"
-            return incoming, log
-        except Exception as exc:
-            log["statut"] = "differe" if isinstance(exc, AccessDeferred) else "echec"
-            log.update(incident(exc, source["url"], "source"))
-            return {}, log
+               "pages_listes_lues": 0, "pages_audiences_lues": 0, "fiches_lues": 0, "erreur": ""}
+        combined, page_incidents = {}, []
+        pending, seen = [source["url"]], set()
+        while pending and len(seen) < max_listing_pages:
+            url = pending.pop(0)
+            if url in seen:
+                continue
+            seen.add(url)
+            try:
+                markup, resolved = fetcher.get(url)
+                log["pages_listes_lues"] += 1
+                incoming, _ = seed_records(markup, resolved, source, stamp)
+                merge_records(combined, incoming)
+                pending.extend(page for page in pagination_pages(markup, resolved) if page not in seen and page not in pending)
+            except Exception as exc:
+                item = incident(exc, url, "source" if url == source["url"] else "pagination_source")
+                page_incidents.append(item)
+                if url == source["url"] and not combined:
+                    log["statut"] = "differe" if isinstance(exc, AccessDeferred) else "echec"
+                else:
+                    log["statut"] = "partiel"
+                log["erreur"] = str(exc)
+        log["liens_detectes"] = len(combined)
+        if not combined and log["statut"] == "ok":
+            log["statut"] = "aucun lien détecté — structure à contrôler"
+        return combined, log, page_incidents
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        for incoming, log in executor.map(listing, sources):
+        for incoming, log, listing_incidents in executor.map(listing, sources):
             merge_records(records, incoming)
             logs.append(log)
+            incidents.extend(listing_incidents)
             print(f"{log['nom']} : {log['liens_detectes']} lien(s), {log['statut']}", flush=True)
     log_by_url = {log["url"]: log for log in logs}
     hearing_urls = []
@@ -641,6 +755,7 @@ def run(args):
     daily = [row for row in qualified if row["url_annonce"] in daily_urls]
     for url, record in records.items():
         state.setdefault("liens", {})[url] = {"premiere_detection": state.get("liens", {}).get(url, {}).get("premiere_detection", stamp), "dernier_controle": stamp}
+    interventions = source_interventions(state, logs, stamp)
     state["version"], state["dernier_passage"] = 1, stamp
     atomic_json(state_path, state)
     unknown = sum(not row.get("faits", {}).get("date_vente") for row in qualified)
@@ -648,9 +763,10 @@ def run(args):
     limits = [f"Budget : {args.max_hearings} pages d'audience et {args.max_details} fiches par passage ; "
               f"{max(0, len(candidates) - len(chosen))} fiches candidates non lues ce passage.",
               f"{unknown} liens de fiches sans date d'enchère extraite restent suivis ; la date est informative et non éliminatoire.",
-              "Les nouvelles audiences Licitor sont lues dès leur détection, puis les autres tournent selon la dernière tentative. "
-              "Les autres listes ne sont pas paginées automatiquement.",
-              "Ces pages ne constituent pas une couverture exhaustive de la France ni des 706 fiches de la base d'avocats.",
+              "Les nouvelles audiences Licitor sont lues dès leur détection, puis les autres tournent selon la dernière tentative. ",
+              f"Pagination des listes : au plus {max_listing_pages} pages par source et par passage.",
+              "Les 1 955 adresses du référentiel national restent conservées mais ne sont pas interrogées chaque jour ; "
+              "la veille quotidienne porte sur les sources éditoriales et pages de ventes qualifiées.",
               "Le registre central Registre_Adjudications.xlsx n'est pas modifié par ce programme.",
               "Une opportunité n'est retenue que si l'occupation libre est confirmée et si la mise à prix publiée ne dépasse pas 60 000 €."]
     limits.append(f"PDF : budget de {max_documents} documents, {max_pdf_pages} pages et {max_ocr_pages} pages OCR ; "
@@ -665,6 +781,8 @@ def run(args):
     report = {
         "version": 1, "controle_utc": stamp, "controle_paris": now.astimezone(PARIS).isoformat(),
         "comptages": {"sources_actives": len(sources), "sources_ok": sum(x["statut"] == "ok" for x in logs),
+                      "sources_accessibles": sum(x["statut"] in {"ok", "partiel"} or x["statut"].startswith("aucun lien") for x in logs),
+                      "pages_listes_lues": sum(x.get("pages_listes_lues", 0) for x in logs),
                       "liens_distincts": len(records), "nouveaux_liens": new_count, "audiences_lues": sum(x["pages_audiences_lues"] for x in logs),
                       "fiches_lues": details_read, "fiches_en_echec": failures,
                       "fiches_nouvellement_lues": first_details, "fiches_modifiees": modified,
@@ -674,9 +792,9 @@ def run(args):
                       "sans_date_enchere": unknown, "liens_pdf_a_lire": pdf_count, "fiches_candidates_non_lues": max(0, len(candidates) - len(chosen)),
                       "documents_pdf_consultes": sum(x["statut"] in {"lu", "partiel"} for x in documents),
                       "documents_pdf_complets": sum(x["statut"] == "lu" for x in documents),
-                      "documents_pdf_detectes": len(tasks), **reader.metrics, **fetcher.metrics},
+                      "documents_pdf_detectes": len(tasks), "interventions_requises": len(interventions), **reader.metrics, **fetcher.metrics},
         "dossiers": daily, "sources": logs, "incidents": incidents, "limites": limits, "documents": documents,
-        "delais_acces": state.get("acces", {}), "historique_documents": history,
+        "delais_acces": state.get("acces", {}), "historique_documents": history, "interventions": interventions,
     }
     save_report(Path(args.output), report)
     # Le catalogue complet reste dans l'artefact, pas dans le rapport public résumé.
@@ -684,7 +802,7 @@ def run(args):
     print(json.dumps(report["comptages"], ensure_ascii=False), flush=True)
     # Code 2 : collecte terminée mais couverture partielle. Code 1 : aucune
     # source exploitable ou erreur d'extracteur à corriger.
-    critical = not any(x["statut"] == "ok" for x in logs) or any("structure" in x["erreur"] for x in incidents)
+    critical = not any(x["statut"] in {"ok", "partiel"} or x["statut"].startswith("aucun lien") for x in logs)
     return 1 if critical else (2 if any(x["statut"] in {"echec", "differe"} for x in logs) or incidents
                                   or any(x["statut"] != "lu" for x in documents) else 0)
 
@@ -696,6 +814,7 @@ def main():
     parser.add_argument("--catalogue", default=str(ROOT / "data/catalogue.json"))
     parser.add_argument("--valuations", default=str(ROOT / "estimations.csv"))
     parser.add_argument("--max-hearings", type=int, default=40)
+    parser.add_argument("--max-listing-pages", type=int, default=3)
     parser.add_argument("--max-details", type=int, default=120)
     parser.add_argument("--max-documents", type=int, default=12)
     parser.add_argument("--max-pdf-pages", type=int, default=80)
@@ -706,6 +825,8 @@ def main():
     args = parser.parse_args()
     if min(args.max_hearings, args.max_details, args.max_documents, args.max_pdf_pages, args.max_ocr_pages, args.pause) < 0:
         parser.error("budgets et pause doivent être positifs ou nuls")
+    if args.max_listing_pages < 1:
+        parser.error("--max-listing-pages doit être au moins égal à 1")
     return run(args)
 
 

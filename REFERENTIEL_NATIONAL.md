@@ -12,10 +12,10 @@ Le fichier catalogue_urls.csv rassemble ces URL, une adresse canonique par ligne
 
 ## Ce qui est réellement surveillé
 
-sources.csv est le fichier effectivement lu par le moteur. Il contient **41 lignes, dont 38 actives** : 9 pages de plateformes, 6 pages de journaux et 23 pages classées avocat; les 3 autres lignes restent désactivées. **20 URL du catalogue national sont actuellement actives** dans le moteur. Les autres URL restent recensées et rattachées aux fiches sources, à qualifier comme pages de veille avant leur éventuelle activation.
+sources.csv est la base opérationnelle du moteur. Elle contient **1 996 lignes** : **41 sources actives en veille quotidienne** — 9 plateformes, 6 journaux, 25 pages de cabinets et 1 page de barreau — et **1 955 références** conservées sans interrogation quotidienne. **20 URL du catalogue national correspondent à des pages de vente de cabinets actuellement actives**. Les autres URL restent recensées et rattachées aux fiches sources, à qualifier comme pages de veille avant leur éventuelle activation.
 
 Les 1 053 fiches de juridictions restent un répertoire de contacts et d’orientation. Elles ne sont pas toutes des pages de veille d’annonces : leurs URL officielles sont principalement des fiches d’annuaire, pas des calendriers de ventes. Les 1 690 fiches d’avocats ne correspondent pas chacune à un site indépendant. Plusieurs renvoient à des profils sur les plateformes Licitor, Info-Enchères, Enchères Publiques ou Immo Enchère. Une fiche de praticien ou une mention d’annonceur ne prouve pas qu’une vente soit en cours.
 
 ## Fraîcheur et limites
 
-La date de collecte du référentiel est le 30 septembre 2026. Les références sont conservées avec leur statut et leurs URL; la collecte du moteur confirme l’accessibilité des pages au moment de chaque passage. Une adresse dans le catalogue ne garantit ni son fonctionnement actuel, ni la publication d’une vente. Les résultats des collectes et incidents d’accès figurent dans rapports/dernier.json et rapports/sources.csv.
+La date de collecte du référentiel est le 30 septembre 2026. Les références sont conservées avec leur statut et leurs URL ; la collecte du moteur confirme l’accessibilité des 41 pages surveillées au moment de chaque passage. Une adresse dans le catalogue ne garantit ni son fonctionnement actuel, ni la publication d’une vente. Les résultats figurent dans rapports/dernier.json et rapports/sources.csv ; les blocages persistants et leurs liens directs figurent dans rapports/interventions.md.

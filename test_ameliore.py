@@ -8,6 +8,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from email.utils import formatdate
+from http.client import RemoteDisconnected
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -15,8 +16,9 @@ from urllib.error import HTTPError
 from acces import AccessDeferred, Fetcher, PdfDocument, retry_after
 from pieces import PdfReader, page_evidence, summarize_evidence
 from qualification import classify
+from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
-from veille import document_history, run
+from veille import document_history, pagination_pages, run, source_interventions
 
 PDF_URL = "https://avoventes.fr/public/document.pdf"
 PDF_TEXT = "Vente le 6 octobre 2026. Mise à prix : 10 000 euros. Le bien est libre de toute occupation. Frais préalables : 4 250,00 euros."
@@ -26,7 +28,8 @@ class Response:
     def __init__(self, body, kind="text/html"):
         self.body = body
         self.headers = Message()
-        self.headers["Content-Type"] = kind
+        if kind is not None:
+            self.headers["Content-Type"] = kind
 
     def __enter__(self):
         return self
@@ -105,6 +108,58 @@ class AccessTests(unittest.TestCase):
                 fetcher.get("https://exemple.fr/document")
             self.assertEqual(fetcher.get_pdf("https://exemple.fr/document")[0], body)
         self.assertEqual(network.call_count, 1)
+
+    def test_temporary_disconnect_is_retried_then_succeeds(self):
+        fetcher = Fetcher(pause=0, retries=2, sleeper=lambda _: None)
+        with patch("acces.urlopen", side_effect=[RemoteDisconnected("coupure"), Response(b"<main>Reprise</main>")]) as network:
+            content, _ = fetcher.get("https://exemple.fr/fiche")
+        self.assertIn("Reprise", content)
+        self.assertEqual(network.call_count, 2)
+        self.assertEqual(fetcher.metrics["tentatives_reprises"], 1)
+        self.assertEqual(fetcher.metrics["reprises_reussies"], 1)
+
+    def test_html_without_content_type_is_accepted_by_signature(self):
+        fetcher = Fetcher(pause=0)
+        with patch("acces.urlopen", return_value=Response(b"<!doctype html><main>Annonce</main>", None)):
+            content, _ = fetcher.get("https://exemple.fr/fiche")
+        self.assertIn("Annonce", content)
+
+
+class SourceOptimisationTests(unittest.TestCase):
+    def test_generated_directory_rows_become_references_but_curated_pages_stay_active(self):
+        rows = [
+            {"nom": "Licitor", "categorie": "site_pro", "url": "https://www.licitor.com/", "active": "1"},
+            {"nom": "Référentiel national — licitor.com", "categorie": "avocat", "url": "https://www.licitor.com/avocat/1", "active": "1"},
+            {"nom": "Référentiel national — lannuaire.service-public.gouv.fr", "categorie": "juridiction_greffe", "url": "https://lannuaire.service-public.gouv.fr/tribunal/1", "active": "1"},
+        ]
+        output, counts = optimise_rows(rows)
+        self.assertEqual(counts, {"veille_quotidienne": 1, "referentiel": 2, "total": 3})
+        self.assertEqual([row["active"] for row in output], ["1", "0", "0"])
+        self.assertEqual(output[1]["usage"], "referentiel")
+
+    def test_pagination_follows_only_explicit_same_site_next_link(self):
+        page = "https://exemple.fr/ventes?page=1"
+        html = '''<a href="/ventes?page=2" rel="next">2</a>
+                  <a href="/ventes?page=3">3</a>
+                  <a href="https://autre.fr/ventes" rel="next">Suivant</a>'''
+        self.assertEqual(pagination_pages(html, page), ["https://exemple.fr/ventes?page=2"])
+
+    def test_intervention_is_immediate_for_dead_link_and_delayed_for_transient_problem(self):
+        state = {}
+        dead = {"nom": "Cabinet", "url": "https://exemple.fr/ancien", "statut": "echec",
+                "liens_detectes": 0, "erreur": "HTTP Error 404: Not Found"}
+        alerts = source_interventions(state, [dead], NOW.isoformat())
+        self.assertEqual(alerts[0]["priorite"], "urgente")
+        self.assertEqual(alerts[0]["url"], dead["url"])
+
+        state = {}
+        temporary = {**dead, "url": "https://exemple.fr/lent", "erreur": "timed out"}
+        self.assertEqual(source_interventions(state, [temporary], NOW.isoformat()), [])
+        self.assertEqual(source_interventions(state, [temporary], NOW.isoformat()), [])
+        self.assertEqual(len(source_interventions(state, [temporary], NOW.isoformat())), 1)
+        healthy = {**temporary, "statut": "ok", "liens_detectes": 2, "erreur": ""}
+        self.assertEqual(source_interventions(state, [healthy], NOW.isoformat()), [])
+        self.assertEqual(state["sante_sources"][temporary["url"]]["echecs_consecutifs"], 0)
 
 
 class DocumentTests(unittest.TestCase):
