@@ -16,9 +16,9 @@ Chaque liste peut être suivie sur plusieurs pages, dans le budget configuré. L
 
 | Rythme | Volume | Fréquence |
 |---|---:|---|
-| Pages directes de ventes | 41 | À chacun des quatre passages quotidiens |
-| Profils d'avocats et annonceurs | 684 | À chaque passage, espacés d'environ 6 heures, dans une capacité de 700 |
-| Annuaires, greffes et juridictions | 1 271 | 50 par passage, les plus anciens d'abord ; cycle d'environ une semaine |
+| Pages directes de ventes | 41 | À chacun des huit passages quotidiens |
+| Profils d'avocats et annonceurs | 684 | Quand ils sont dus, espacés d'environ 6 heures, dans une capacité de 700 |
+| Annuaires, greffes et juridictions | 1 271 | 160 par passage, les plus anciens d'abord ; cycle national d'environ une journée |
 | Sites découverts automatiquement | Variable | Contrôle immédiat puis toutes les 24 heures |
 
 ## Référentiel national
