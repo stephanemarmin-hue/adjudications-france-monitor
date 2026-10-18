@@ -18,7 +18,8 @@ from pieces import PdfReader, page_evidence, summarize_evidence
 from qualification import classify
 from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
-from veille import document_history, pagination_pages, run, source_interventions
+from veille import (coverage_audit, discover_source_links, document_history, pagination_pages, run,
+                    select_sources, source_interventions)
 
 PDF_URL = "https://avoventes.fr/public/document.pdf"
 PDF_TEXT = "Vente le 6 octobre 2026. Mise à prix : 10 000 euros. Le bien est libre de toute occupation. Frais préalables : 4 250,00 euros."
@@ -126,16 +127,59 @@ class AccessTests(unittest.TestCase):
 
 
 class SourceOptimisationTests(unittest.TestCase):
-    def test_generated_directory_rows_become_references_but_curated_pages_stay_active(self):
+    def test_all_rows_are_active_with_useful_cadences(self):
         rows = [
             {"nom": "Licitor", "categorie": "site_pro", "url": "https://www.licitor.com/", "active": "1"},
             {"nom": "Référentiel national — licitor.com", "categorie": "avocat", "url": "https://www.licitor.com/avocat/1", "active": "1"},
             {"nom": "Référentiel national — lannuaire.service-public.gouv.fr", "categorie": "juridiction_greffe", "url": "https://lannuaire.service-public.gouv.fr/tribunal/1", "active": "1"},
         ]
         output, counts = optimise_rows(rows)
-        self.assertEqual(counts, {"veille_quotidienne": 1, "referentiel": 2, "total": 3})
-        self.assertEqual([row["active"] for row in output], ["1", "0", "0"])
-        self.assertEqual(output[1]["usage"], "referentiel")
+        self.assertEqual(counts, {"veille_quotidienne": 1, "veille_rapide": 1,
+                                  "decouverte_nationale": 1, "total": 3})
+        self.assertEqual([row["active"] for row in output], ["1", "1", "1"])
+        self.assertEqual([row["usage"] for row in output],
+                         ["veille_quotidienne", "veille_rapide", "decouverte_nationale"])
+
+    def test_scheduler_scans_direct_pages_and_rotates_oldest_sources(self):
+        rows = [
+            {"nom": "Direct", "url": "https://direct.fr/ventes", "active": True, "usage": "veille_quotidienne"},
+            {"nom": "Profil A", "url": "https://profils.fr/a", "active": True, "usage": "veille_rapide"},
+            {"nom": "Profil B", "url": "https://profils.fr/b", "active": True, "usage": "veille_rapide"},
+            {"nom": "Greffe A", "url": "https://greffes.fr/a", "active": True, "usage": "decouverte_nationale"},
+            {"nom": "Greffe B", "url": "https://greffes.fr/b", "active": True, "usage": "decouverte_nationale"},
+        ]
+        state = {"tentatives_sources": {"https://profils.fr/a": "2026-10-01T00:00:00+00:00",
+                                         "https://profils.fr/b": "2026-10-02T00:00:00+00:00",
+                                         "https://greffes.fr/a": "2026-09-01T00:00:00+00:00"}}
+        selected, stats = select_sources(rows, state, NOW, max_profiles=1, max_directories=1,
+                                         max_discovered=0, profile_interval_hours=6,
+                                         directory_interval_hours=168)
+        self.assertEqual({row["url"] for row in selected},
+                         {"https://direct.fr/ventes", "https://profils.fr/a", "https://greffes.fr/b"})
+        self.assertEqual(stats["veille_rapide_en_retard"], 1)
+        self.assertEqual(stats["decouverte_nationale_en_attente"], 1)
+
+    def test_directory_discovers_external_official_site_and_sale_page(self):
+        source = {"url": "https://annuaire.fr/tribunal", "usage": "decouverte_nationale"}
+        html = '''<a href="https://tribunal.fr/">Site internet</a>
+                  <a href="https://cabinet.fr/ventes-aux-encheres">Ventes aux enchères immobilières</a>
+                  <a href="https://facebook.com/tribunal">Site internet</a>
+                  <a href="/interne">Site internet</a>'''
+        links = discover_source_links(html, source["url"], source, NOW.isoformat())
+        self.assertEqual({row["url"] for row in links},
+                         {"https://tribunal.fr/", "https://cabinet.fr/ventes-aux-encheres"})
+
+    def test_coverage_is_not_claimed_without_independent_sample(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "controle.csv"
+            path.write_text("date_publication,url_reference,url_detectee,detectee,statut\n", encoding="utf-8")
+            self.assertEqual(coverage_audit(path, set())["statut"], "non_mesure")
+            path.write_text("date_publication,url_reference,url_detectee,detectee,statut\n"
+                            "2026-10-01,https://reference.fr/a,https://moteur.fr/a,oui,\n"
+                            "2026-10-02,https://reference.fr/b,,,\n", encoding="utf-8")
+            audit = coverage_audit(path, {"https://reference.fr/b"})
+            self.assertEqual((audit["echantillon"], audit["detectees"], audit["taux_pct"]), (2, 2, 100.0))
+            self.assertFalse(audit["objectif_95"])
 
     def test_pagination_follows_only_explicit_same_site_next_link(self):
         page = "https://exemple.fr/ventes?page=1"
@@ -160,6 +204,15 @@ class SourceOptimisationTests(unittest.TestCase):
         healthy = {**temporary, "statut": "ok", "liens_detectes": 2, "erreur": ""}
         self.assertEqual(source_interventions(state, [healthy], NOW.isoformat()), [])
         self.assertEqual(state["sante_sources"][temporary["url"]]["echecs_consecutifs"], 0)
+
+    def test_reference_failures_are_grouped_by_domain(self):
+        logs = [{"nom": f"Profil {index}", "url": f"https://profils.fr/{index}", "usage": "veille_rapide",
+                 "statut": "echec", "liens_detectes": 0, "erreur": "HTTP Error 404: Not Found"}
+                for index in range(3)]
+        alerts = source_interventions({}, logs, NOW.isoformat())
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["nombre_sources"], 3)
+        self.assertIn("3 adresse(s)", alerts[0]["probleme"])
 
 
 class DocumentTests(unittest.TestCase):
