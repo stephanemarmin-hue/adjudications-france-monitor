@@ -133,8 +133,16 @@ class Fetcher:
                         if exc.code == 429:
                             self._count("reponses_429")
                     raise
-                except (URLError, TimeoutError, ConnectionError, RemoteDisconnected):
+                except (URLError, TimeoutError, ConnectionError, RemoteDisconnected) as exc:
                     if attempt >= self.retries:
+                        # Après les reprises, différer tout le domaine plutôt que
+                        # d'attendre le même délai sur des centaines de profils.
+                        previous = (restriction or {}).get("echecs_consecutifs", 0)
+                        self.access_state[host] = {
+                            "attendre_jusqua_utc": utc_iso(self.clock() + 900),
+                            "code_http": "reseau", "dernier_echec_utc": utc_iso(self.clock()),
+                            "echecs_consecutifs": previous + 1, "derniere_erreur": str(exc),
+                        }
                         raise
                     retried = True
                     self._count("tentatives_reprises")
