@@ -19,7 +19,7 @@ from qualification import classify
 from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
 from veille import (coverage_audit, discover_source_links, document_history, network_order,
-                    pagination_pages, run, select_sources, source_interventions)
+                    network_order_urls, pagination_pages, run, select_sources, source_interventions)
 
 PDF_URL = "https://avoventes.fr/public/document.pdf"
 PDF_TEXT = "Vente le 6 octobre 2026. Mise à prix : 10 000 euros. Le bien est libre de toute occupation. Frais préalables : 4 250,00 euros."
@@ -184,6 +184,12 @@ class SourceOptimisationTests(unittest.TestCase):
         self.assertEqual([row["url"] for row in ordered[1:]], [
             "https://a.fr/profil-1", "https://b.fr/profil", "https://c.fr/profil",
             "https://a.fr/profil-2",
+        ])
+
+    def test_network_order_urls_interleaves_detail_hosts(self):
+        urls = ["https://a.fr/1", "https://a.fr/2", "https://b.fr/1", "https://c.fr/1"]
+        self.assertEqual(network_order_urls(urls), [
+            "https://a.fr/1", "https://b.fr/1", "https://c.fr/1", "https://a.fr/2",
         ])
 
     def test_directory_discovers_external_official_site_and_sale_page(self):
