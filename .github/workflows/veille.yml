@@ -3,7 +3,7 @@ name: Veille adjudications France
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 1,7,13,19 * * *'
+    - cron: '17 0,3,6,9,12,15,18,21 * * *'
       timezone: Europe/Paris
 
 permissions:
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python veille.py --max-listing-pages 12 --max-profile-pages 2 --max-discovery-pages 1 --max-profile-sources 700 --max-directory-sources 50 --max-discovered-sources 100 --profile-interval-hours 5 --directory-interval-hours 168 --discovered-interval-hours 24 --max-hearings 200 --max-details 800 --max-documents 100 --max-pdf-pages 800 --max-ocr-pages 80
+          python veille.py --max-listing-pages 12 --max-profile-pages 2 --max-discovery-pages 1 --max-profile-sources 700 --max-directory-sources 160 --max-discovered-sources 100 --profile-interval-hours 5 --directory-interval-hours 23 --discovered-interval-hours 24 --max-hearings 200 --max-details 800 --max-documents 100 --max-pdf-pages 800 --max-ocr-pages 80
           result=$?
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
           exit 0
