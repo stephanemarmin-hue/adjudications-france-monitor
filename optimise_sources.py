@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sépare la veille quotidienne du référentiel national de contacts."""
+"""Classe toute la base nationale dans un rythme de surveillance utile."""
 from __future__ import annotations
 
 import csv
@@ -37,19 +37,31 @@ def reference_reason(row: dict[str, str]) -> str:
     return "Référence de praticien à qualifier avant activation"
 
 
+def scheduled_usage(row: dict[str, str]) -> tuple[str, str]:
+    """Les profils tournent vite ; les annuaires servent à découvrir de nouvelles pages."""
+    if row.get("categorie") == "juridiction_greffe":
+        return "decouverte_nationale", "Annuaire officiel balayé par rotation hebdomadaire pour découvrir les pages de ventes"
+    return "veille_rapide", "Profil de praticien balayé à chaque passage pour détecter annonces et sites de cabinets"
+
+
 def optimise_rows(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, int]]:
     output = []
-    active = references = 0
+    daily = rapid = discovery = 0
     for original in rows:
         row = dict(original)
         if is_generated_reference(row):
-            row.update(active="0", usage="referentiel", motif=reference_reason(row))
-            references += 1
+            usage, reason = scheduled_usage(row)
+            row.update(active="1", usage=usage, motif=reason)
+            if usage == "veille_rapide":
+                rapid += 1
+            else:
+                discovery += 1
         else:
             row.update(active="1", usage="veille_quotidienne", motif=active_reason(row))
-            active += 1
+            daily += 1
         output.append(row)
-    return output, {"veille_quotidienne": active, "referentiel": references, "total": len(output)}
+    return output, {"veille_quotidienne": daily, "veille_rapide": rapid,
+                    "decouverte_nationale": discovery, "total": len(output)}
 
 
 def optimise(path: Path = SOURCE_FILE) -> dict[str, int]:
@@ -69,5 +81,7 @@ if __name__ == "__main__":
     counts = optimise()
     print(
         f"Sources : {counts['veille_quotidienne']} en veille quotidienne ; "
-        f"{counts['referentiel']} conservées comme références ; {counts['total']} au total."
+        f"{counts['veille_rapide']} profils en veille rapide ; "
+        f"{counts['decouverte_nationale']} annuaires en découverte nationale ; "
+        f"{counts['total']} adresses actives au total."
     )
