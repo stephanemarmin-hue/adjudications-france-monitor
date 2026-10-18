@@ -12,7 +12,7 @@ Le fichier catalogue_urls.csv rassemble ces URL, une adresse canonique par ligne
 
 ## Ce qui est réellement surveillé
 
-sources.csv est la base opérationnelle du moteur. Ses **1 996 lignes sont actives** selon trois rythmes : **41 pages directes** et **684 profils** à chacun des quatre passages quotidiens, puis **1 271 annuaires/juridictions** par lots de 50, les plus anciens d'abord. **20 URL du catalogue national correspondent à des pages de vente de cabinets en veille directe**. Les autres URL servent à détecter des annonces et à découvrir automatiquement de nouvelles rubriques publiques.
+sources.csv est la base opérationnelle du moteur. Ses **1 996 lignes sont actives** selon trois rythmes : **41 pages directes** à chacun des huit passages quotidiens, **684 profils** environ toutes les six heures, puis **1 271 annuaires/juridictions** par lots de 160, les plus anciens d'abord. Le cycle des annuaires tient ainsi dans environ une journée. **20 URL du catalogue national correspondent à des pages de vente de cabinets en veille directe**. Les autres URL servent à détecter des annonces et à découvrir automatiquement de nouvelles rubriques publiques.
 
 Les 1 053 fiches de juridictions restent surtout un répertoire de contacts et d’orientation : leurs URL officielles sont principalement des fiches d’annuaire, pas des calendriers de ventes. Leur balayage sert à trouver les liens publics pertinents. Les 1 690 fiches d’avocats ne correspondent pas chacune à un site indépendant. Plusieurs renvoient à des profils sur les plateformes Licitor, Info-Enchères, Enchères Publiques ou Immo Enchère. Une fiche de praticien ou une mention d’annonceur ne prouve pas qu’une vente soit en cours.
 
