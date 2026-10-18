@@ -4,9 +4,9 @@ Surveillance des pages publiques déclarées dans `sources.csv`, lecture bornée
 
 ## Exécution automatique
 
-Le workflow **Veille adjudications France** s'exécute une fois par jour à **18 h, heure de Marrakech**, avec le fuseau `Africa/Casablanca` et ses changements d'heure. GitHub peut décaler légèrement une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
+Le workflow **Veille adjudications France** s'exécute **quatre fois par jour**, à 1 h 17, 7 h 17, 13 h 17 et 19 h 17 en heure de Paris. GitHub peut décaler légèrement une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
 
-Les changements du code ou des sources ne lancent pas une seconde collecte automatiquement : le passage quotidien reste unique, sauf lancement manuel depuis Actions.
+Les changements du code ou des sources ne lancent pas une collecte supplémentaire automatiquement, sauf lancement manuel depuis Actions.
 
 - [Dernier rapport lisible](rapports/dernier.md)
 - [Résultats structurés](rapports/dernier.json)
@@ -21,13 +21,13 @@ Une tâche ChatGPT de bilan quotidien peut lire `rapports/dernier.json`, `rappor
 
 ## Ce que le moteur vérifie
 
-1. Il parcourt **41 sources de ventes qualifiées** chaque jour. Les **1 955 autres adresses** restent conservées comme références nationales, sans gaspiller de requêtes sur des annuaires, contacts et profils redondants.
-2. Il détecte des liens d'audiences et de fiches et suit jusqu'à **4 pages de liste par source**. Les cartes Avoventes incluent date, prix publié et échéance lorsqu'ils sont affichés.
-3. Il ouvre une nouvelle audience Licitor **dès que son lien est détecté**, puis suit les audiences déjà connues par rotation, dans la limite de **40 pages d'audience** par passage.
-4. Il lit jusqu'à **120 fiches**, avec priorité aux nouveaux liens, puis reprend les fiches déjà connues selon leur dernière tentative. La date de l'enchère ne retarde jamais la détection. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
+1. Les **1 996 adresses sont actives**. Les 41 pages de ventes qualifiées et les 684 profils d'avocats sont lus à chaque passage, et 50 des 1 271 annuaires/juridictions les plus anciens sont contrôlés à chaque passage. Le balayage national complet des annuaires tient ainsi dans environ une semaine.
+2. Il détecte des liens d'audiences et de fiches et suit jusqu'à **12 pages de liste par source directe**, 2 pages par profil et 1 page par annuaire. Les sites et rubriques de ventes découverts dans les profils ou annuaires sont mémorisés, contrôlés immédiatement dans la limite disponible, puis revisités automatiquement.
+3. Il ouvre une nouvelle audience Licitor **dès que son lien est détecté**, puis suit les audiences déjà connues par rotation, dans la limite de **200 pages d'audience** par passage.
+4. Il lit jusqu'à **800 fiches**, avec priorité aux nouveaux liens, puis reprend les fiches déjà connues selon leur dernière tentative. La date de l'enchère ne retarde jamais la détection. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
 5. Il extrait les mentions explicites de date, mise à prix, prix adjugé, occupation et travaux. Pour la sélection automatique, le bien doit être libre et sa mise à prix publiée doit être inférieure ou égale à **60 000 €**.
 6. Il publie un rapport même si des sources échouent. Les coupures temporaires et erreurs serveur sont réessayées deux fois. Une erreur permanente crée immédiatement une demande d'intervention ; une erreur temporaire la crée après trois passages consécutifs, avec action et lien direct.
-7. Il annexe à chaque bien **tous les liens de pièces détectés**, sans limite de nombre. Il consulte progressivement jusqu'à **12 PDF** par passage, traite jusqu'à **80 pages** dont **6 par OCR**, avec **8 pages au plus par document et par passage**. La lecture reprend les pages restantes aux passages suivants. Le contenu du PDF est identifié par son empreinte : une modification remet sa lecture à zéro. Les pièces des dossiers nouveaux ou enrichis sont prioritaires, puis la file tourne selon la dernière tentative.
+7. Il annexe à chaque bien **tous les liens de pièces détectés**, sans limite de nombre. Il consulte progressivement jusqu'à **100 PDF** par passage, traite jusqu'à **800 pages** dont **80 par OCR**, avec **8 pages au plus par document et par passage**. La lecture reprend les pages restantes aux passages suivants. Le contenu du PDF est identifié par son empreinte : une modification remet sa lecture à zéro. Les pièces des dossiers nouveaux ou enrichis sont prioritaires, puis la file tourne selon la dernière tentative.
 
 Les indices PDF comportent **URL, numéro de page, méthode texte/OCR et extrait ciblé**. Ils sont conservés séparément des faits de l'annonce : plusieurs biens, dates ou prix peuvent figurer dans une pièce. Le rapport affiche les contradictions, pages restantes et erreurs dans ses données structurées. Une extraction ne confirme ni l'attribution d'une mention au bien, ni son actualité. Une occupation incompatible récente peut exclure un dossier ; les mentions de travaux ne le bloquent pas.
 
@@ -72,21 +72,23 @@ Le collecteur initial reste disponible avec `python monitor.py`. Le workflow uti
 Options utiles :
 
 ```sh
-python veille.py --max-listing-pages 4 --max-hearings 40 --max-details 120 --max-documents 12 --max-pdf-pages 80 --max-ocr-pages 6
+python veille.py --max-listing-pages 12 --max-profile-sources 700 --max-directory-sources 50 --max-hearings 200 --max-details 800 --max-documents 100 --max-pdf-pages 800 --max-ocr-pages 80
 python veille.py --now 2026-10-07T12:00:00+02:00 --fixtures correspondances.json
 ```
 
 Le second mode lit un JSON `URL → chemin HTML ou PDF local` pour vérifier les extracteurs sans réseau. Ajouter `--max-documents 0` pour désactiver la lecture des pièces. Les tests couvrent les dates françaises, la détection immédiate, l'occupation libre ou incompatible, le plafond de mise à prix, l'annexion complète des pièces, la pagination, les erreurs, l'historique d'enrichissement et l'affichage quotidien limité aux nouveautés.
 
-## Référentiel national restauré
+## Base nationale activée
 
 Les fichiers [repertoire_greffes.csv](repertoire_greffes.csv) et [repertoire_avocats.csv](repertoire_avocats.csv) réintègrent la liste nationale collectée le 30 septembre 2026. Ils contiennent 1 053 fiches de juridictions/contacts et 1 690 fiches d’avocats, dont 706 marquées prioritaires. Les deux catalogues portent 3 536 références URL (1 975 adresses distinctes). Ils conservent aussi les types de contact et les liens de provenance.
 
-Le répertoire des greffes comprend des fiches d’annuaire officiel, dont 157 tribunaux judiciaires, mais aussi des juridictions et contacts sans rapport direct avec les adjudications. Les fiches d’annuaire ne sont pas activées comme pages d’annonces. Parmi les références d’avocats, certaines sont des profils sur des plateformes, non des sites indépendants de cabinets. Vingt pages de vente de cabinets reprises dans la base sont incluses dans les sources actives ; les autres adresses restent à qualifier. Leur présence dans le catalogue ne garantit pas qu’elles soient encore accessibles ou à jour.
+Le répertoire des greffes comprend des fiches d’annuaire officiel, dont 157 tribunaux judiciaires, mais aussi des juridictions et contacts sans rapport direct avec les adjudications. Elles servent à découvrir des sites et rubriques, et tournent par lots plutôt que d'être confondues avec des pages d'annonces. Parmi les références d’avocats, certaines sont des profils sur des plateformes, non des sites indépendants de cabinets ; elles sont néanmoins contrôlées rapidement afin d'en extraire annonces et liens vers les cabinets. Leur présence dans le catalogue ne garantit pas qu’elles soient encore accessibles ou à jour : les échecs répétés créent une demande d'intervention avec lien direct.
 
 ## Limites de couverture
 
-Le référentiel national conserve 1 053 fiches de juridictions et 1 690 fiches d’avocats, dont 706 références prioritaires. Ces fiches sont des pistes et contacts documentés ; elles ne signifient pas que 1 690 cabinets disposent d’une page de ventes distincte, ni que tous les greffes publient des annonces. La base conserve 1 996 adresses, mais seules les 41 pages de ventes qualifiées sont interrogées quotidiennement. Cette liste ne constitue pas un balayage exhaustif de tout le web ou des annonces.
+Le référentiel national conserve 1 053 fiches de juridictions et 1 690 fiches d’avocats, dont 706 références prioritaires. Ces fiches sont des pistes et contacts documentés ; elles ne signifient pas que 1 690 cabinets disposent d’une page de ventes distincte, ni que tous les greffes publient des annonces. La base conserve 1 996 adresses et elles participent toutes au calendrier de surveillance. Cela ne permet toutefois pas d'affirmer que 95 % de toutes les annonces françaises sont détectées : cette proportion doit être mesurée contre une liste externe et indépendante d'annonces réellement parues.
+
+Le fichier `controle_couverture.csv` est prévu pour ce contrôle. Le rapport n'affiche un taux que lorsque cet échantillon est alimenté. L'objectif 95 % n'est déclaré démontré qu'avec au moins 500 annonces indépendantes et une borne basse statistique d'au moins 95 %. En l'absence d'échantillon, le rapport écrit explicitement « non mesuré » au lieu d'inventer un pourcentage.
 
 La déduplication porte sur les URL. Deux publications du même bien sur deux sites peuvent rester distinctes ; elles ne doivent pas être comptées comme deux opportunités indépendantes sans contrôle. `Registre_Adjudications.xlsx` et la base nationale restent les outils de consolidation : ce programme ne les modifie pas.
 
