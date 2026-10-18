@@ -112,6 +112,29 @@ def source_due(source, attempts, now, interval_hours):
     return previous is None or now - previous >= timedelta(hours=interval_hours)
 
 
+def network_order(sources):
+    """Entrelace les domaines sans faire passer une source secondaire avant la veille directe."""
+    ordered = []
+    usages = ("veille_quotidienne", "veille_rapide", "decouverte_nationale", "veille_decouverte")
+    remaining = list(sources)
+    for usage in usages + (None,):
+        group = ([source for source in remaining if (source.get("usage") or "veille_quotidienne") == usage]
+                 if usage is not None else remaining)
+        if usage is not None:
+            selected_ids = {id(source) for source in group}
+            remaining = [source for source in remaining if id(source) not in selected_ids]
+        queues = {}
+        for source in group:
+            host = (urlparse(source["url"]).hostname or source["url"]).lower().removeprefix("www.")
+            queues.setdefault(host, []).append(source)
+        while queues:
+            for host in list(queues):
+                ordered.append(queues[host].pop(0))
+                if not queues[host]:
+                    del queues[host]
+    return ordered
+
+
 def select_sources(database, state, now, *, max_profiles=700, max_directories=160,
                    max_discovered=100, profile_interval_hours=5,
                    directory_interval_hours=23, discovered_interval_hours=24):
@@ -803,7 +826,7 @@ def run(args):
         if not batch:
             return
         with ThreadPoolExecutor(max_workers=4) as executor:
-            for incoming, log, listing_incidents, discoveries in executor.map(listing, batch):
+            for incoming, log, listing_incidents, discoveries in executor.map(listing, network_order(batch)):
                 merge_records(records, incoming)
                 logs.append(log)
                 incidents.extend(listing_incidents)
