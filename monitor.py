@@ -108,20 +108,33 @@ def existing_hashes(path: Path) -> set[str]:
     return found
 
 
-def load_sources() -> list[dict[str, str]]:
+def load_source_database() -> list[dict[str, str]]:
     if not SOURCE_FILE.exists():
         raise FileNotFoundError(f"Fichier absent : {SOURCE_FILE}")
     with SOURCE_FILE.open(newline="", encoding="utf-8-sig") as stream:
         rows = list(csv.DictReader(stream))
-    active = []
+    sources = []
     for row in rows:
         url = (row.get("url") or "").strip()
-        if (row.get("active") or "").strip().lower() in {"1", "oui", "true", "yes"} and url:
-            if urlparse(url).scheme not in {"http", "https"}:
-                print(f"Source ignorée, URL invalide : {url}", file=sys.stderr)
-                continue
-            active.append({"nom": (row.get("nom") or url).strip(), "categorie": (row.get("categorie") or "à classer").strip(), "url": url})
-    return active
+        if not url:
+            continue
+        if urlparse(url).scheme not in {"http", "https"}:
+            print(f"Source ignorée, URL invalide : {url}", file=sys.stderr)
+            continue
+        sources.append({
+            "nom": (row.get("nom") or url).strip(),
+            "categorie": (row.get("categorie") or "à classer").strip(),
+            "url": url,
+            "active": (row.get("active") or "").strip().lower() in {"1", "oui", "true", "yes"},
+            "usage": (row.get("usage") or "veille_quotidienne").strip(),
+            "motif": (row.get("motif") or "").strip(),
+        })
+    return sources
+
+
+def load_sources() -> list[dict[str, str]]:
+    """Compatibilité avec le collecteur initial : retourne les lignes actives."""
+    return [source for source in load_source_database() if source["active"]]
 
 
 def collect(source: dict[str, str], known: set[str]) -> tuple[int, int]:
