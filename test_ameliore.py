@@ -18,8 +18,9 @@ from pieces import PdfReader, page_evidence, summarize_evidence
 from qualification import classify
 from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
-from veille import (coverage_audit, discover_source_links, document_history, network_order,
-                    network_order_urls, pagination_pages, run, select_sources, source_interventions)
+from veille import (count_detail_for_selected_sources, coverage_audit, discover_source_links,
+                    document_history, network_order, network_order_urls, pagination_pages, run,
+                    select_sources, source_interventions)
 
 PDF_URL = "https://avoventes.fr/public/document.pdf"
 PDF_TEXT = "Vente le 6 octobre 2026. Mise à prix : 10 000 euros. Le bien est libre de toute occupation. Frais préalables : 4 250,00 euros."
@@ -191,6 +192,12 @@ class SourceOptimisationTests(unittest.TestCase):
         self.assertEqual(network_order_urls(urls), [
             "https://a.fr/1", "https://b.fr/1", "https://c.fr/1", "https://a.fr/2",
         ])
+
+    def test_detail_count_ignores_sources_not_selected_this_passage(self):
+        logs = {"https://selected.fr": {"fiches_lues": 0}}
+        sources = [{"url": "https://old-source.fr"}, {"url": "https://selected.fr"}]
+        count_detail_for_selected_sources(logs, sources, True)
+        self.assertEqual(logs["https://selected.fr"]["fiches_lues"], 1)
 
     def test_directory_discovers_external_official_site_and_sale_page(self):
         source = {"url": "https://annuaire.fr/tribunal", "usage": "decouverte_nationale"}
