@@ -4,7 +4,7 @@ Surveillance des pages publiques déclarées dans `sources.csv`, lecture bornée
 
 ## Exécution automatique
 
-Le workflow **Veille adjudications France** s'exécute **quatre fois par jour**, à 1 h 17, 7 h 17, 13 h 17 et 19 h 17 en heure de Paris. GitHub peut décaler légèrement une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
+Le workflow **Veille adjudications France** s'exécute **huit fois par jour**, toutes les trois heures à partir de 0 h 17 en heure de Paris. GitHub peut décaler légèrement une exécution programmée. Un passage peut aussi être lancé depuis **Actions → Veille adjudications France → Run workflow**.
 
 Les changements du code ou des sources ne lancent pas une collecte supplémentaire automatiquement, sauf lancement manuel depuis Actions.
 
@@ -21,7 +21,7 @@ Une tâche ChatGPT de bilan quotidien peut lire `rapports/dernier.json`, `rappor
 
 ## Ce que le moteur vérifie
 
-1. Les **1 996 adresses sont actives**. Les 41 pages de ventes qualifiées et les 684 profils d'avocats sont lus à chaque passage, et 50 des 1 271 annuaires/juridictions les plus anciens sont contrôlés à chaque passage. Le balayage national complet des annuaires tient ainsi dans environ une semaine.
+1. Les **1 996 adresses sont actives**. Les 41 pages de ventes qualifiées sont lues toutes les trois heures, les 684 profils d'avocats environ toutes les six heures, et 160 des 1 271 annuaires/juridictions les plus anciens sont contrôlés à chaque passage. Les huit passages quotidiens couvrent ainsi l'ensemble du balayage national des annuaires en environ une journée.
 2. Il détecte des liens d'audiences et de fiches et suit jusqu'à **12 pages de liste par source directe**, 2 pages par profil et 1 page par annuaire. Les sites et rubriques de ventes découverts dans les profils ou annuaires sont mémorisés, contrôlés immédiatement dans la limite disponible, puis revisités automatiquement.
 3. Il ouvre une nouvelle audience Licitor **dès que son lien est détecté**, puis suit les audiences déjà connues par rotation, dans la limite de **200 pages d'audience** par passage.
 4. Il lit jusqu'à **800 fiches**, avec priorité aux nouveaux liens, puis reprend les fiches déjà connues selon leur dernière tentative. La date de l'enchère ne retarde jamais la détection. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
@@ -72,7 +72,7 @@ Le collecteur initial reste disponible avec `python monitor.py`. Le workflow uti
 Options utiles :
 
 ```sh
-python veille.py --max-listing-pages 12 --max-profile-sources 700 --max-directory-sources 50 --max-hearings 200 --max-details 800 --max-documents 100 --max-pdf-pages 800 --max-ocr-pages 80
+python veille.py --max-listing-pages 12 --max-profile-sources 700 --max-directory-sources 160 --directory-interval-hours 23 --max-hearings 200 --max-details 800 --max-documents 100 --max-pdf-pages 800 --max-ocr-pages 80
 python veille.py --now 2026-10-07T12:00:00+02:00 --fixtures correspondances.json
 ```
 
