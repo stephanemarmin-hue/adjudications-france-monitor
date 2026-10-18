@@ -18,8 +18,8 @@ from pieces import PdfReader, page_evidence, summarize_evidence
 from qualification import classify
 from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
-from veille import (coverage_audit, discover_source_links, document_history, pagination_pages, run,
-                    select_sources, source_interventions)
+from veille import (coverage_audit, discover_source_links, document_history, network_order,
+                    pagination_pages, run, select_sources, source_interventions)
 
 PDF_URL = "https://avoventes.fr/public/document.pdf"
 PDF_TEXT = "Vente le 6 octobre 2026. Mise à prix : 10 000 euros. Le bien est libre de toute occupation. Frais préalables : 4 250,00 euros."
@@ -170,6 +170,21 @@ class SourceOptimisationTests(unittest.TestCase):
                          {"https://direct.fr/ventes", "https://profils.fr/a", "https://greffes.fr/b"})
         self.assertEqual(stats["veille_rapide_en_retard"], 1)
         self.assertEqual(stats["decouverte_nationale_en_attente"], 1)
+
+    def test_network_order_keeps_priority_and_interleaves_domains(self):
+        rows = [
+            {"url": "https://a.fr/direct", "usage": "veille_quotidienne"},
+            {"url": "https://a.fr/profil-1", "usage": "veille_rapide"},
+            {"url": "https://a.fr/profil-2", "usage": "veille_rapide"},
+            {"url": "https://b.fr/profil", "usage": "veille_rapide"},
+            {"url": "https://c.fr/profil", "usage": "veille_rapide"},
+        ]
+        ordered = network_order(rows)
+        self.assertEqual(ordered[0]["url"], "https://a.fr/direct")
+        self.assertEqual([row["url"] for row in ordered[1:]], [
+            "https://a.fr/profil-1", "https://b.fr/profil", "https://c.fr/profil",
+            "https://a.fr/profil-2",
+        ])
 
     def test_directory_discovers_external_official_site_and_sale_page(self):
         source = {"url": "https://annuaire.fr/tribunal", "usage": "decouverte_nationale"}
