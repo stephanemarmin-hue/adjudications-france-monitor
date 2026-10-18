@@ -24,6 +24,8 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - name: Séparer la veille quotidienne du référentiel national
+        run: python optimise_sources.py
       - name: Reconstruire l’inventaire national des URL
         run: python build_catalogue_urls.py
       - name: Publier le catalogue national des URL
@@ -31,7 +33,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add catalogue_urls.csv
+          git add sources.csv catalogue_urls.csv
           if ! git diff --cached --quiet; then
             git commit -m 'Actualiser le catalogue national des URL [skip ci]'
             git pull --rebase origin main
@@ -54,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python veille.py --max-hearings 40 --max-details 120 --max-documents 12 --max-pdf-pages 80 --max-ocr-pages 6
+          python veille.py --max-listing-pages 4 --max-hearings 40 --max-details 120 --max-documents 12 --max-pdf-pages 80 --max-ocr-pages 6
           result=$?
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
           exit 0
@@ -67,6 +69,20 @@ jobs:
             echo 'Le moteur n’a pas produit de rapport.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      - name: Signaler les interventions requises avec leurs liens
+        if: always() && hashFiles('rapports/dernier.json') != ''
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("rapports/dernier.json").read_text(encoding="utf-8"))
+          for item in report.get("interventions", []):
+              message = f"{item['probleme']} Action : {item['action']} Lien : {item['url']}"
+              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::warning title=Intervention requise — {item['source']}::{message}")
+          PY
       - name: Conserver le rapport, le catalogue et le référentiel URL
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -86,7 +102,7 @@ jobs:
           test -f rapports/dernier.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add rapports/dernier.md rapports/dernier.json rapports/dernier.csv rapports/sources.csv
+          git add rapports/dernier.md rapports/dernier.json rapports/dernier.csv rapports/sources.csv rapports/interventions.md
           if ! git diff --cached --quiet; then
             git commit -m 'Actualiser le rapport de veille [skip ci]'
             git pull --rebase origin main
