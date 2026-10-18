@@ -22,11 +22,11 @@ Une tâche ChatGPT de bilan quotidien peut lire `rapports/dernier.json` et `rapp
 
 1. Il parcourt les **1 996 sources actives** de `sources.csv`, dont les **1 975 adresses distinctes** du référentiel national restauré. Certaines URL sont des annuaires, profils ou pages sans annonces ; le rapport distingue les pages accessibles et réellement productives.
 2. Il détecte des liens d'audiences et de fiches. Les cartes Avoventes incluent date, prix publié et échéance lorsqu'ils sont affichés.
-3. Il ouvre les audiences Licitor entre **J+1 et J+4** et leur pagination, dans la limite de **40 pages d'audience** par passage.
-4. Il lit jusqu'à **120 fiches**, avec priorité aux dates récentes. Les fiches sans date identifiée sont explorées par rotation. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
-5. Il extrait les mentions explicites de date, prix, occupation et travaux. Pour la sélection automatique, seule la preuve que le bien est libre est obligatoire ; les autres champs restent informatifs.
+3. Il ouvre une nouvelle audience Licitor **dès que son lien est détecté**, puis suit les audiences déjà connues par rotation, dans la limite de **40 pages d'audience** par passage.
+4. Il lit jusqu'à **120 fiches**, avec priorité aux nouveaux liens, puis reprend les fiches déjà connues selon leur dernière tentative. La date de l'enchère ne retarde jamais la détection. Les requêtes sont limitées à quatre traitements concurrents, avec au moins 0,8 seconde entre départs de requêtes d'un même site.
+5. Il extrait les mentions explicites de date, mise à prix, prix adjugé, occupation et travaux. Pour la sélection automatique, le bien doit être libre et sa mise à prix publiée doit être inférieure ou égale à **60 000 €**.
 6. Il publie un rapport même si des sources échouent. Une couverture partielle est signalée par un avertissement visible et le code de collecte 2. Une erreur d'extracteur ou l'absence de toute source exploitable entraîne un échec du workflow (code 1).
-7. Il consulte jusqu'à **12 PDF**, traite jusqu'à **80 pages** dont **6 par OCR**, avec **8 pages au plus par document et par passage**. La lecture reprend les pages restantes aux passages suivants. Le contenu du PDF est identifié par son empreinte : une modification remet sa lecture à zéro. Les pièces des fiches récentes sont prioritaires, puis la file tourne selon la dernière tentative.
+7. Il annexe à chaque bien **tous les liens de pièces détectés**, sans limite de nombre. Il consulte progressivement jusqu'à **12 PDF** par passage, traite jusqu'à **80 pages** dont **6 par OCR**, avec **8 pages au plus par document et par passage**. La lecture reprend les pages restantes aux passages suivants. Le contenu du PDF est identifié par son empreinte : une modification remet sa lecture à zéro. Les pièces des dossiers nouveaux ou enrichis sont prioritaires, puis la file tourne selon la dernière tentative.
 
 Les indices PDF comportent **URL, numéro de page, méthode texte/OCR et extrait ciblé**. Ils sont conservés séparément des faits de l'annonce : plusieurs biens, dates ou prix peuvent figurer dans une pièce. Le rapport affiche les contradictions, pages restantes et erreurs dans ses données structurées. Une extraction ne confirme ni l'attribution d'une mention au bien, ni son actualité. Une occupation incompatible récente peut exclure un dossier ; les mentions de travaux ne le bloquent pas.
 
@@ -40,18 +40,20 @@ Ces délais sont conservés dans l'état et restaurés au passage suivant. Le ra
 
 ## Critères de sélection
 
-- Audience entre **J+1 et J+4**, en jours calendaires et selon la date en France.
+- Entrée dans le suivi dès la première détection de la publication, sans attendre la date de l'enchère.
+- Mise à prix publiée obligatoire et inférieure ou égale à **60 000 €**.
 - Bien libre avec preuve ; un bien occupé, loué ou contradictoire est rejeté.
 - Une vente retirée, reportée, non requise ou amiable est rejetée.
-- Les travaux, le prix adjugé, la date de surenchère, la valorisation, les frais et la marge restent informatifs et ne bloquent pas la sélection.
+- La date de l'enchère est affichée lorsqu'elle est publiée, mais son absence ou son éloignement ne bloque pas la sélection.
+- Les travaux, le prix adjugé et la date de surenchère restent informatifs et ne bloquent pas la sélection.
 
-Une occupation inconnue produit le statut `a_verifier`. Le statut `retenu_sur_donnees_validees` signifie uniquement que l'occupation libre est confirmée par la fiche ou par une validation manuelle récente. Il n'autorise aucune enchère automatiquement.
+Une occupation inconnue ou une mise à prix absente produit le statut `a_verifier`. Une mise à prix supérieure à 60 000 € produit le statut `rejete`. Le statut `retenu_sur_donnees_validees` signifie uniquement que l'occupation libre et le plafond de mise à prix sont confirmés. Il n'autorise aucune enchère automatiquement.
 
 ## Rapport quotidien et historique
 
-Le rapport quotidien affiche uniquement les dossiers **nouveaux ou modifiés pendant le passage du jour**. Un jour sans changement produit donc un rapport vide, sans répéter les anciens résultats. Le catalogue et l'état conservent néanmoins l'historique complet pour les recherches ultérieures.
+Le rapport quotidien affiche uniquement les dossiers **détectés ou enrichis pendant le passage du jour**. Il mentionne la date de l'enchère, la mise à prix, les nouveaux éléments et tous les liens de pièces rattachés au dossier. Un jour sans changement produit donc un rapport vide, sans répéter les anciens résultats. Le catalogue et l'état conservent l'historique daté de chaque enrichissement pour les recherches ultérieures.
 
-Le fichier `estimations.csv` peut encore confirmer manuellement une occupation libre lorsque la date de vérification et la source d'occupation ont moins de sept jours. Ses anciens champs financiers sont conservés pour compatibilité, mais ils n'interviennent plus dans la sélection.
+Le fichier `estimations.csv` peut confirmer manuellement une occupation libre lorsque la date de vérification et la source d'occupation ont moins de sept jours. La mise à prix doit toujours provenir de la publication du dossier.
 
 ## Installation et test local
 
@@ -71,7 +73,7 @@ python veille.py --max-hearings 40 --max-details 120 --max-documents 12 --max-pd
 python veille.py --now 2026-10-07T12:00:00+02:00 --fixtures correspondances.json
 ```
 
-Le second mode lit un JSON `URL → chemin HTML ou PDF local` pour vérifier les extracteurs sans réseau. Ajouter `--max-documents 0` pour désactiver la lecture des pièces. Les tests couvrent les dates françaises, le fuseau Paris, l'occupation libre ou incompatible, les champs informatifs, la mise à prix, la pagination, les erreurs, l'actualisation de l'état et l'affichage quotidien limité aux nouveautés ou modifications.
+Le second mode lit un JSON `URL → chemin HTML ou PDF local` pour vérifier les extracteurs sans réseau. Ajouter `--max-documents 0` pour désactiver la lecture des pièces. Les tests couvrent les dates françaises, la détection immédiate, l'occupation libre ou incompatible, le plafond de mise à prix, l'annexion complète des pièces, la pagination, les erreurs, l'historique d'enrichissement et l'affichage quotidien limité aux nouveautés.
 
 ## Référentiel national restauré
 

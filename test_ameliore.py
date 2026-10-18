@@ -205,11 +205,11 @@ class DocumentTests(unittest.TestCase):
     def test_report_and_state_keep_pdf_page_proofs(self, _):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "liste.html").write_text(LIST)
-            (root / "fiche.html").write_text(DETAIL)
+            (root / "liste.html").write_text(LIST, encoding="utf-8")
+            (root / "fiche.html").write_text(DETAIL, encoding="utf-8")
             (root / "piece.pdf").write_bytes(b"%PDF-1.4\nfixture")
             mapping = {SOURCE["url"]: str(root / "liste.html"), URL: str(root / "fiche.html"), PDF_URL: str(root / "piece.pdf")}
-            (root / "mapping.json").write_text(json.dumps(mapping))
+            (root / "mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
             args = argparse.Namespace(now=NOW.isoformat(), fixtures=str(root / "mapping.json"), pause=0,
                                       state=str(root / "etat.json"), output=str(root / "rapports"), catalogue=str(root / "catalogue.json"),
                                       valuations=str(root / "estimations.csv"), max_hearings=5, max_details=5,

@@ -1,10 +1,10 @@
-"""Filtres prudents et calculs financiers, sans valeur ni frais inventés."""
+"""Critères prudents de sélection, sans donnée inventée."""
 from __future__ import annotations
 
 import re
 import unicodedata
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 PARIS = ZoneInfo("Europe/Paris")
@@ -118,53 +118,6 @@ def works(text: str) -> tuple[str, list[str]]:
     return ("necessaires", evidence) if evidence else ("a_verifier", [])
 
 
-def economics(price: Decimal, valuation: dict) -> dict:
-    """40 % = bénéfice avant fiscalité / ensemble des coûts engagés."""
-    names = ["revente_prudente_eur", "frais_acquisition_fixes_eur", "taux_frais_acquisition",
-             "frais_revente_eur", "frais_portage_eur"]
-    values = {key: amount(valuation.get(key)) for key in names}
-    missing = [key for key, value in values.items() if value is None]
-    if missing:
-        return {"donnees_manquantes": missing}
-    resale, fixed, rate, selling, carrying = [values[key] for key in names]
-    if resale <= 0 or rate >= 1:
-        return {"donnees_manquantes": ["valeur positive et taux de frais entre 0 et 1 requis"]}
-    cent = Decimal("0.01")
-    minimum = (price * Decimal("1.10")).quantize(cent, rounding=ROUND_UP)
-    cap = max(Decimal(0), (resale / Decimal("1.40") - fixed - selling - carrying) / (1 + rate))
-    cap = cap.quantize(cent, rounding=ROUND_DOWN)
-    acquisition_fees = minimum * rate + fixed
-    acquisition = minimum + acquisition_fees
-    total = acquisition + selling + carrying
-    profit = resale - total
-    stressed = resale * Decimal("0.90") - total
-    at_cap_fees = cap * rate + fixed
-    at_cap_total = cap + at_cap_fees + selling + carrying
-    at_cap_profit = resale - at_cap_total
-    at_cap_stress = resale * Decimal("0.90") - at_cap_total
-    return {
-        "surenchere_minimale_eur": str(minimum),
-        "plafond_marteau_eur": str(cap),
-        "frais_acquisition_au_plafond_eur": str(at_cap_fees.quantize(cent)),
-        "acte_en_mains_au_plafond_eur": str((cap + at_cap_fees).quantize(cent)),
-        "cout_total_au_plafond_eur": str(at_cap_total.quantize(cent)),
-        "benefice_au_plafond_eur": str(at_cap_profit.quantize(cent)),
-        "marge_au_plafond_pct": str((at_cap_profit / at_cap_total * 100).quantize(cent)) if at_cap_total else None,
-        "benefice_stresse_au_plafond_eur": str(at_cap_stress.quantize(cent)),
-        "marge_stressee_au_plafond_pct": str((at_cap_stress / at_cap_total * 100).quantize(cent)) if at_cap_total else None,
-        "frais_acquisition_au_minimum_eur": str(acquisition_fees.quantize(cent)),
-        "cout_total_au_minimum_eur": str(total.quantize(cent)),
-        "revente_prudente_eur": str(resale),
-        "benefice_au_minimum_eur": str(profit.quantize(cent)),
-        "marge_au_minimum_pct": str((profit / total * 100).quantize(cent)) if total else None,
-        "benefice_stresse_eur": str(stressed.quantize(cent)),
-        "marge_stressee_pct": str((stressed / total * 100).quantize(cent)) if total else None,
-        "compatible_40_pct": minimum <= cap,
-        "base_marge": "bénéfice avant fiscalité / (acquisition + frais de revente + portage)",
-        "hypotheses": valuation,
-    }
-
-
 def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict:
     today = now.astimezone(PARIS).date()
     facts = record.get("faits", {})
@@ -175,13 +128,16 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
         try:
             sale = date.fromisoformat(facts["date_vente"])
         except ValueError:
-            missing.append("date d'audience illisible")
+            pass
     age = (today - sale).days if sale else None
     result["jours_apres_audience"] = age
-    if age is None:
-        missing.append("date d'audience")
-    elif not 1 <= age <= 4:
-        rejected.append("hors fenêtre J+1 à J+4")
+    result["jours_avant_enchere"] = (sale - today).days if sale else None
+
+    starting_price = amount(facts.get("mise_a_prix_eur"))
+    if starting_price is None:
+        missing.append("prix de départ")
+    elif starting_price > Decimal("60000"):
+        rejected.append("prix de départ supérieur à 60 000 €")
     if facts.get("hors_metropole"):
         rejected.append("hors France métropolitaine")
     if facts.get("retiree"):
@@ -195,7 +151,7 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
 
     # Une pièce rattachée au dossier peut écarter un bien occupé, mais elle ne
     # valide jamais à elle seule que le bien est libre. Les mentions de travaux,
-    # de prix, de surenchère et de rentabilité restent informatives et non bloquantes.
+    # de prix adjugé ou de surenchère restent informatives et non bloquantes.
     attached_urls = set(record.get("documents", [])) | {d.get("url") for d in record.get("documents_extraits", [])}
     for proof in record.get("preuves_documentaires", []):
         if proof.get("url") not in attached_urls or proof.get("methode") not in {"texte", "ocr"}:
@@ -217,6 +173,7 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
 
     # Une validation manuelle récente peut confirmer l'occupation, sans exiger
     # les anciens champs financiers, d'état du bien ou de délai de surenchère.
+    # Elle ne remplace jamais la mise à prix publiée, qui reste obligatoire.
     if valuation:
         validation_ok = False
         try:
@@ -232,5 +189,7 @@ def classify(record: dict, now: datetime, valuation: dict | None = None) -> dict
     result["motifs_rejet"] = list(dict.fromkeys(rejected))
     result["a_verifier"] = list(dict.fromkeys(missing))
     result["statut"] = "rejete" if rejected else ("a_verifier" if result["a_verifier"] else "retenu_sur_donnees_validees")
-    result["niveau_preuve"] = "occupation libre confirmée" if result["statut"] == "retenu_sur_donnees_validees" else "C — publication à contrôler"
+    result["niveau_preuve"] = ("occupation libre et prix de départ ≤ 60 000 € confirmés"
+                                if result["statut"] == "retenu_sur_donnees_validees"
+                                else "C — publication à contrôler")
     return result

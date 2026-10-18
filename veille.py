@@ -253,10 +253,6 @@ def parse_detail(markup, page_url, record):
     old_facts = record.get("faits", {})
     detail_facts = facts_from_text(text, host, detail=True,
                                   occupancy_labels=property_occupancy_labels(container, host))
-    date_known = detail_facts.get("date_vente") or old_facts.get("date_vente")
-    expected_no_date = detail_facts.get("retiree") or detail_facts.get("vente_amiable")
-    if host in {"avoventes.fr", "licitor.com"} and not date_known and not expected_no_date:
-        raise ValueError("structure de fiche non reconnue : date de vente absente")
     if detail_facts.get("date_vente"):
         detail_facts["date_vente_source"] = page_url
     # Les faits manquants restent inconnus; la liste du même passage peut
@@ -268,8 +264,10 @@ def parse_detail(markup, page_url, record):
     result["controle_detail_utc"] = datetime.now(timezone.utc).isoformat()
     result["erreur_detail"] = None
     result["niveau_preuve"] = "C — publication, documents non vérifiés automatiquement"
-    result["documents"] = list({canonical(n.attrs["href"], page_url) for n in container.all()
-                                if n.tag == "a" and ".pdf" in n.attrs.get("href", "").lower()})[:30]
+    detected_documents = {canonical(n.attrs["href"], page_url) for n in container.all()
+                          if n.tag == "a" and n.attrs.get("href")
+                          and is_pdf_url(canonical(n.attrs["href"], page_url))}
+    result["documents"] = sorted((set(record.get("documents", [])) | detected_documents) - {""})
     result["documents_controles_automatiquement"] = False
     headings = [n.text() for n in container.all() if n.tag in {"h1", "h2"} and n.text()]
     if headings:
@@ -300,6 +298,36 @@ def merge_records(target, incoming):
                 record["faits"][key] = bool(previous_facts.get(key) or record["faits"].get(key))
             record["adresse"] = record.get("adresse") or target[url].get("adresse", "")
         target[url] = record
+
+
+def meaningful(value):
+    return value not in (None, "", [], {})
+
+
+def track_record(previous, current, stamp):
+    """Conserver le dossier cumulatif et journaliser chaque information nouvelle."""
+    result = dict(current)
+    result["documents"] = sorted(set(previous.get("documents", [])) | set(current.get("documents", [])))
+    changes = []
+    previous_facts, current_facts = previous.get("faits", {}), result.get("faits", {})
+    for key in sorted(set(previous_facts) | set(current_facts)):
+        old, new = previous_facts.get(key), current_facts.get(key)
+        if meaningful(new) and old != new:
+            changes.append({"champ": f"faits.{key}", "ancienne_valeur": old, "nouvelle_valeur": new})
+    for key in ["titre", "adresse"]:
+        old, new = previous.get(key), result.get(key)
+        if meaningful(new) and old != new:
+            changes.append({"champ": key, "ancienne_valeur": old, "nouvelle_valeur": new})
+    new_documents = sorted(set(result["documents"]) - set(previous.get("documents", [])))
+    if new_documents:
+        changes.append({"champ": "documents", "ancienne_valeur": None, "nouvelle_valeur": new_documents})
+    history = list(previous.get("historique_mises_a_jour", []))
+    if not previous or changes:
+        history.append({"controle_utc": stamp, "type": "premiere_detection" if not previous else "mise_a_jour",
+                        "nouveaux_elements": changes})
+    result["historique_mises_a_jour"] = history
+    result["nouveaux_elements_ce_passage"] = changes
+    return result
 
 
 def load_valuations(path):
@@ -348,16 +376,19 @@ def save_report(folder, report):
     folder.mkdir(parents=True, exist_ok=True)
     atomic_json(folder / "dernier.json", report)
     rows = report["dossiers"]
-    columns = ["id", "statut", "adresse", "titre", "date_vente", "jours_apres_audience", "occupation",
-               "prix_adjuge_eur", "motifs_rejet", "a_verifier", "url_annonce"]
+    columns = ["id", "statut", "date_detection", "adresse", "titre", "date_vente", "jours_avant_enchere",
+               "occupation", "mise_a_prix_eur", "motifs_rejet", "a_verifier", "nouveaux_elements",
+               "pieces_dossier", "url_annonce"]
     with (folder / "dernier.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
         for row in rows:
             output = {key: row.get(key, "") for key in columns}
-            output.update({key: row["faits"].get(key, "") for key in ["date_vente", "occupation", "prix_adjuge_eur"]})
+            output.update({key: row["faits"].get(key, "") for key in ["date_vente", "occupation", "mise_a_prix_eur"]})
             for key in ["motifs_rejet", "a_verifier"]:
                 output[key] = "; ".join(row[key])
+            output["nouveaux_elements"] = json.dumps(row.get("nouveaux_elements_ce_passage", []), ensure_ascii=False)
+            output["pieces_dossier"] = "; ".join(row.get("documents", []))
             writer.writerow(output)
     with (folder / "sources.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         cols = ["nom", "url", "statut", "liens_detectes", "pages_audiences_lues", "fiches_lues", "erreur", "controle_utc"]
@@ -366,11 +397,11 @@ def save_report(folder, report):
         writer.writerows(report["sources"])
     count = report["comptages"]
     lines = ["# Veille adjudications — nouveautés du jour", "", f"Contrôle : **{report['controle_paris']}** (Europe/Paris).",
-             "", f"**{count['dossiers_recents']} dossier(s) nouveau(x) ou modifié(s) aujourd'hui** : "
+             "", f"**{count['dossiers_du_jour']} dossier(s) détecté(s) ou enrichi(s) aujourd'hui** : "
              f"{count['retenus']} bien(s) libre(s) confirmé(s), {count['a_verifier']} à vérifier et "
-             f"{count['rejetes_recents']} rejet(s).", "",
-             f"Le moteur a observé {count.get('dossiers_recents_observes', 0)} dossier(s) dans la fenêtre J+1 à J+4 ; "
-             "seuls les nouveaux ou modifiés figurent ci-dessous. L'historique complet reste conservé dans le catalogue.", "",
+             f"{count['rejetes']} rejet(s).", "",
+             f"Le moteur suit {count.get('dossiers_suivis_observes', 0)} dossier(s), quelle que soit la date de l'enchère ; "
+             "seuls ceux détectés ou enrichis pendant ce passage figurent ci-dessous. L'historique complet reste conservé dans le catalogue.", "",
              f"{count['sources_ok']}/{count['sources_actives']} pages sources accessibles ; {count['liens_distincts']} liens distincts ; "
              f"{count['audiences_lues']} pages d'audience et {count['fiches_lues']} fiches détaillées lues.", "",
              f"Nouveautés : {count['nouveaux_liens']} liens ; {count.get('fiches_nouvellement_lues', 0)} fiches lues pour la première fois ; "
@@ -379,22 +410,22 @@ def save_report(folder, report):
              f"{count.get('pages_pdf_extraites', 0)} lues, dont {count.get('pages_ocr', 0)} par OCR. "
              f"{count.get('acces_differes', 0)} requêtes différées après une limite ou un refus d'accès.", "",
              "Le nombre de liens inclut des audiences et des annonces anciennes ou futures. La couverture est limitée aux pages listées et au budget de lecture indiqué ci-dessous.", "",
-             "## Dossiers nouveaux ou modifiés aujourd'hui", "",
-             "| Bien | Statut | Occupation | Audience | Prix publié (indicatif) | Contrôle | Source |",
-             "|---|---|---|---|---|---|---|"]
+             "## Dossiers détectés ou enrichis aujourd'hui", "",
+             "| Bien | Statut | Mise à prix | Date de l'enchère | Occupation | Nouveaux éléments | Pièces du dossier | Source |",
+             "|---|---|---|---|---|---|---|---|"]
     labels = {"retenu_sur_donnees_validees": "Libre confirmé", "a_verifier": "À vérifier", "rejete": "Rejeté"}
     for row in rows:
         facts = row["faits"]
-        control = "; ".join(row["motifs_rejet"] or row["a_verifier"]) or "Occupation libre confirmée"
-        published_price = money(facts.get("prix_adjuge_eur")) if facts.get("prix_adjuge_eur") not in {None, ""} else "Non publié"
-        evidence_links = "".join(f" ; [{p['champ']} p. {p['page']}]({p['url']}#page={p['page']})"
-                                 for p in row.get("preuves_documentaires", [])[:3])
-        values = [row.get("adresse") or row["titre"], labels.get(row["statut"], row["statut"]),
-                  facts.get("occupation", "inconnue"), facts.get("date_vente"), published_price,
-                  control, f"[Annonce]({row['url_annonce']})" + evidence_links]
+        starting_price = money(facts.get("mise_a_prix_eur")) if facts.get("mise_a_prix_eur") not in {None, ""} else "Non publiée"
+        changes = "; ".join(f"{item['champ']} : {item.get('nouvelle_valeur')}"
+                            for item in row.get("nouveaux_elements_ce_passage", [])) or "Nouvelle détection"
+        pieces = "; ".join(f"[Pièce {index}]({url})" for index, url in enumerate(row.get("documents", []), 1)) or "Aucune pièce détectée"
+        values = [row.get("adresse") or row["titre"], labels.get(row["statut"], row["statut"]), starting_price,
+                  facts.get("date_vente") or "Non publiée", facts.get("occupation", "inconnue"), changes,
+                  pieces, f"[Annonce]({row['url_annonce']})"]
         lines.append("| " + " | ".join(cell(value) for value in values) + " |")
     if not rows:
-        lines += ["", "Aucun dossier nouveau ou modifié aujourd'hui."]
+        lines += ["", "Aucun dossier détecté ou enrichi aujourd'hui."]
     lines += ["", "## Sources productives ce passage", "", "| Source | Accès | Liens | Audiences | Fiches | Incident |", "|---|---|---|---|---|---|"]
     productive_sources = [source for source in report["sources"] if source.get("liens_detectes")
                           or source.get("pages_audiences_lues") or source.get("fiches_lues")]
@@ -419,7 +450,7 @@ def save_report(folder, report):
     lines += ["- " + warning for warning in report["limites"]]
     lines += ["", "Les pages PDF sont extraites dans les budgets indiqués, avec OCR pour les scans lorsque nécessaire. "
                "Les indices gardent la référence de page ; leur attribution au bien et leur actualité restent à contrôler. "
-               "Seule la preuve que le bien est libre conditionne sa sélection automatique.", ""]
+               "La sélection automatique exige une occupation libre confirmée et une mise à prix publiée inférieure ou égale à 60 000 €.", ""]
     (folder / "dernier.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -428,11 +459,13 @@ def run(args):
     if now.tzinfo is None:
         raise ValueError("--now doit préciser un fuseau horaire")
     stamp, today = now.isoformat(), now.astimezone(PARIS).date()
-    fixture_map = json.loads(Path(args.fixtures).read_text()) if args.fixtures else None
+    fixture_map = json.loads(Path(args.fixtures).read_text(encoding="utf-8")) if args.fixtures else None
     state_path = Path(args.state)
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"liens": {}, "fiches": {}}
+    state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {"liens": {}, "fiches": {}}
     if state.get("version") not in {None, 1}:
         raise ValueError("version d'état non prise en charge")
+    known_link_urls = set(state.get("liens", {}))
+    previous_fiches = dict(state.get("fiches", {}))
     fetcher = Fetcher(fixture_map, pause=args.pause, access_state=state.setdefault("acces", {}))
     sources = load_sources()
     records, logs, incidents = {}, [], []
@@ -461,16 +494,18 @@ def run(args):
     hearing_urls = []
     for url, record in list(records.items()):
         if "licitor.com" in urlparse(url).netloc and urlparse(url).path.startswith("/ventes-judiciaires-immobilieres/"):
-            day = french_date(urlparse(url).path.replace("-", " "))
-            if day and 1 <= (today - day).days <= 4:
-                hearing_urls.append((url, record["sources"][0]))
-    remaining_pages = hearing_urls[:args.max_hearings]
+            priority = 0 if url not in known_link_urls else 1
+            attempted = state.get("tentatives_audiences", {}).get(url, "")
+            hearing_urls.append((priority, attempted, url, record["sources"][0]))
+    hearing_urls.sort(key=lambda item: (item[0], item[1], item[2]))
+    remaining_pages = [(url, source) for _, _, url, source in hearing_urls[:args.max_hearings]]
     seen_pages = set()
     while remaining_pages and len(seen_pages) < args.max_hearings:
         url, source = remaining_pages.pop(0)
         if url in seen_pages:
             continue
         seen_pages.add(url)
+        state.setdefault("tentatives_audiences", {})[url] = stamp
         try:
             markup, resolved = fetcher.get(url)
             incoming, pages = hearing_records(markup, resolved, source, stamp)
@@ -491,28 +526,26 @@ def run(args):
             continue
         if record["faits"].get("vente_amiable"):
             continue
-        date_value = record["faits"].get("date_vente")
-        day = None
-        if date_value:
-            try:
-                day = datetime.fromisoformat(date_value).date()
-            except ValueError:
-                day = None
-        age = (today - day).days if day else None
-        if age is None or 1 <= age <= 4:
-            priority = 0 if age is not None else 1
-            previous = state.get("fiches", {}).get(url, {})
-            attempted = state.get("tentatives", {}).get(url, previous.get("controle_detail_utc", ""))
-            candidates.append((priority, attempted, url))
+        previous = previous_fiches.get(url, {})
+        priority = 0 if url not in known_link_urls else (1 if not previous.get("empreinte_contenu") else 2)
+        attempted = state.get("tentatives", {}).get(url, previous.get("controle_detail_utc", ""))
+        candidates.append((priority, attempted, url))
     candidates.sort()
     chosen = [url for _, _, url in candidates[:args.max_details]]
-    failures, modified, details_read, first_details = 0, 0, 0, 0
+    failures, details_read, first_details = 0, 0, 0
     updated_urls = set()
 
     def read_detail(url):
         try:
             markup, resolved = fetcher.get(url)
-            return url, parse_detail(markup, resolved, records[url]), None
+            current = records[url]
+            previous = previous_fiches.get(url, {})
+            if previous:
+                current = {**previous, **current,
+                           "faits": {**previous.get("faits", {}), **current.get("faits", {})},
+                           "sources": list({source["url"]: source for source in previous.get("sources", []) + current.get("sources", [])}.values()),
+                           "documents": sorted(set(previous.get("documents", [])) | set(current.get("documents", [])))}
+            return url, parse_detail(markup, resolved, current), None
         except PdfDocument:
             parsed = {**records[url], "support": "pdf_a_lire", "documents": [url],
                       "documents_controles_automatiquement": False, "detail_lu_ce_passage": False}
@@ -523,7 +556,7 @@ def run(args):
     with ThreadPoolExecutor(max_workers=4) as executor:
         for url, parsed, error in executor.map(read_detail, chosen):
             state.setdefault("tentatives", {})[url] = stamp
-            previous = state.get("fiches", {}).get(url, {})
+            previous = previous_fiches.get(url, {})
             if error:
                 failures += 1
                 records[url]["erreur_detail"] = error["erreur"]
@@ -532,16 +565,32 @@ def run(args):
                 details_read += bool(parsed.get("detail_lu_ce_passage"))
                 first_detail = bool(parsed.get("empreinte_contenu") and not previous.get("empreinte_contenu"))
                 changed = bool(previous.get("empreinte_contenu") and previous["empreinte_contenu"] != parsed.get("empreinte_contenu"))
-                modified += changed
                 first_details += first_detail
                 if first_detail or changed:
                     updated_urls.add(url)
                 records[url] = parsed
-                state.setdefault("fiches", {})[url] = parsed
                 for source in parsed["sources"]:
                     log_by_url[source["url"]]["fiches_lues"] += bool(parsed.get("detail_lu_ce_passage"))
             if (details_read + failures) % 20 == 0:
                 print(f"Fiches : {details_read} lues, {failures} en échec", flush=True)
+    new_urls = {url for url in records if url not in known_link_urls}
+    for url, current in list(records.items()):
+        previous = previous_fiches.get(url, {})
+        if previous:
+            current_error = current.get("erreur_detail")
+            current = {**previous, **current,
+                       "faits": {**previous.get("faits", {}), **current.get("faits", {})},
+                       "sources": list({source["url"]: source for source in previous.get("sources", []) + current.get("sources", [])}.values()),
+                       "documents": sorted(set(previous.get("documents", [])) | set(current.get("documents", [])))}
+            current["erreur_detail"] = current_error
+        current["date_detection"] = state.get("liens", {}).get(url, {}).get("premiere_detection", stamp)
+        current = track_record(previous, current, stamp)
+        if previous and current["nouveaux_elements_ce_passage"]:
+            updated_urls.add(url)
+        records[url] = current
+        state.setdefault("fiches", {})[url] = current
+    modified = len(updated_urls & known_link_urls)
+    daily_urls = new_urls | updated_urls
     # Les pièces sont téléchargées au plus une fois par URL dans ce passage.
     # Leur lecture progresse page par page entre passages sans lever la validation humaine.
     max_documents = getattr(args, "max_documents", 0 if fixture_map is not None else 12)
@@ -553,8 +602,7 @@ def run(args):
         for document in record.get("documents", []):
             document_owners.setdefault(document, []).append(url)
     for url, owners in document_owners.items():
-        is_recent = any(records[owner].get("detail_lu_ce_passage") and records[owner]["faits"].get("date_vente")
-                        and 1 <= (today - datetime.fromisoformat(records[owner]["faits"]["date_vente"]).date()).days <= 4 for owner in owners)
+        is_recent = any(owner in daily_urls for owner in owners)
         previous = state.get("pieces", {}).get(url, {})
         tasks.append((0 if is_recent else 1, previous.get("derniere_tentative_utc", ""), url))
     tasks.sort()
@@ -587,27 +635,24 @@ def run(args):
     valuations = load_valuations(Path(args.valuations))
     qualified = [classify(record, now, valuations.get(url)) for url, record in records.items()
                  if not urlparse(url).path.startswith("/ventes-judiciaires-immobilieres/")]
-    recent = [row for row in qualified if row["jours_apres_audience"] is not None and 1 <= row["jours_apres_audience"] <= 4]
-    recent.sort(key=lambda x: (x["statut"], -(x.get("jours_apres_audience") or 0), x.get("adresse") or x["titre"]))
-    new_urls = {url for url in records if url not in state.get("liens", {})}
+    qualified.sort(key=lambda x: (x["statut"], x.get("faits", {}).get("date_vente") or "9999-12-31",
+                                  x.get("adresse") or x["titre"]))
     new_count = len(new_urls)
-    daily_urls = new_urls | updated_urls
-    daily = [row for row in recent if row["url_annonce"] in daily_urls]
+    daily = [row for row in qualified if row["url_annonce"] in daily_urls]
     for url, record in records.items():
         state.setdefault("liens", {})[url] = {"premiere_detection": state.get("liens", {}).get(url, {}).get("premiere_detection", stamp), "dernier_controle": stamp}
     state["version"], state["dernier_passage"] = 1, stamp
     atomic_json(state_path, state)
-    unknown = sum(row["jours_apres_audience"] is None for row in qualified)
+    unknown = sum(not row.get("faits", {}).get("date_vente") for row in qualified)
     pdf_count = sum(record.get("support") == "pdf_a_lire" for record in records.values())
     limits = [f"Budget : {args.max_hearings} pages d'audience et {args.max_details} fiches par passage ; "
               f"{max(0, len(candidates) - len(chosen))} fiches candidates non lues ce passage.",
-              f"{unknown} liens de fiches sans date d'audience extraite restent hors sélection ; "
-              "ils sont explorés par rotation aux passages suivants.",
-              "Les paginations Licitor des audiences récentes sont parcourues dans le budget. "
+              f"{unknown} liens de fiches sans date d'enchère extraite restent suivis ; la date est informative et non éliminatoire.",
+              "Les nouvelles audiences Licitor sont lues dès leur détection, puis les autres tournent selon la dernière tentative. "
               "Les autres listes ne sont pas paginées automatiquement.",
               "Ces pages ne constituent pas une couverture exhaustive de la France ni des 706 fiches de la base d'avocats.",
               "Le registre central Registre_Adjudications.xlsx n'est pas modifié par ce programme.",
-              "Une opportunité n'est retenue que si l'occupation libre est confirmée ; les autres données publiées restent indicatives."]
+              "Une opportunité n'est retenue que si l'occupation libre est confirmée et si la mise à prix publiée ne dépasse pas 60 000 €."]
     limits.append(f"PDF : budget de {max_documents} documents, {max_pdf_pages} pages et {max_ocr_pages} pages OCR ; "
                   f"au plus 8 pages d'un document par passage, avec reprise des pages restantes. "
                   f"{max(0, len(tasks) - max_documents)} documents détectés non consultés ce passage ; {pdf_count} liens directs vers un PDF.")
@@ -623,10 +668,10 @@ def run(args):
                       "liens_distincts": len(records), "nouveaux_liens": new_count, "audiences_lues": sum(x["pages_audiences_lues"] for x in logs),
                       "fiches_lues": details_read, "fiches_en_echec": failures,
                       "fiches_nouvellement_lues": first_details, "fiches_modifiees": modified,
-                      "dossiers_recents_observes": len(recent), "dossiers_recents": len(daily),
+                      "dossiers_suivis_observes": len(qualified), "dossiers_du_jour": len(daily),
                       "retenus": sum(x["statut"] == "retenu_sur_donnees_validees" for x in daily),
-                      "a_verifier": sum(x["statut"] == "a_verifier" for x in daily), "rejetes_recents": sum(x["statut"] == "rejete" for x in daily),
-                      "sans_date": unknown, "liens_pdf_a_lire": pdf_count, "fiches_candidates_non_lues": max(0, len(candidates) - len(chosen)),
+                      "a_verifier": sum(x["statut"] == "a_verifier" for x in daily), "rejetes": sum(x["statut"] == "rejete" for x in daily),
+                      "sans_date_enchere": unknown, "liens_pdf_a_lire": pdf_count, "fiches_candidates_non_lues": max(0, len(candidates) - len(chosen)),
                       "documents_pdf_consultes": sum(x["statut"] in {"lu", "partiel"} for x in documents),
                       "documents_pdf_complets": sum(x["statut"] == "lu" for x in documents),
                       "documents_pdf_detectes": len(tasks), **reader.metrics, **fetcher.metrics},

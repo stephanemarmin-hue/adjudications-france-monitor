@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
-from qualification import amount, classify, economics, french_date, occupancy, works
+from qualification import amount, classify, french_date, occupancy, works
 from veille import Document, facts_from_text, hearing_records, parse_detail, run, seed_records
 from pieces import page_evidence, PdfReader
 
@@ -30,15 +30,11 @@ Documents <a href="/public/document.pdf">CCV</a></div>'''
 
 def valuation():
     return {"date_verification": "2026-10-07", "source_occupation": "https://exemple.fr/pv.pdf",
-            "occupation": "libre", "source_etat": "https://exemple.fr/diagnostics.pdf", "etat_sans_travaux": "oui",
-            "source_delai": "https://exemple.fr/avocat", "surenchere_confirmee": "oui",
-            "source_valeur": "https://exemple.fr/comparables", "source_frais": "https://exemple.fr/decompte",
-            "revente_prudente_eur": "150000", "frais_acquisition_fixes_eur": "10000", "taux_frais_acquisition": "0.10",
-            "frais_revente_eur": "5000", "frais_portage_eur": "2000"}
+            "occupation": "libre"}
 
 
 def record():
-    return {"faits": {"date_vente": "2026-10-06", "prix_adjuge_eur": "50000", "occupation": "libre",
+    return {"faits": {"date_vente": "2026-10-06", "mise_a_prix_eur": "50000", "prix_adjuge_eur": "50000", "occupation": "libre",
                       "date_limite_surenchere": "2026-10-16", "travaux": "a_verifier"}, "detail_lu_ce_passage": True}
 
 
@@ -57,29 +53,27 @@ class MoneyAndDateTests(unittest.TestCase):
         self.assertIsNone(amount("Non indiqué"))
         self.assertIsNone(amount("-100"))
 
-    def test_finance_includes_all_costs_and_stress(self):
-        result = economics(Decimal("50000"), valuation())
-        self.assertEqual(result["surenchere_minimale_eur"], "55000.00")
-        self.assertEqual(result["cout_total_au_minimum_eur"], "77500.00")
-        self.assertEqual(result["benefice_au_minimum_eur"], "72500.00")
-        self.assertEqual(result["benefice_stresse_eur"], "57500.00")
-        cap = Decimal(result["plafond_marteau_eur"])
-        cost = cap * Decimal("1.10") + Decimal(17000)
-        self.assertGreaterEqual((Decimal(150000) - cost) / cost, Decimal("0.40"))
-        next_cost = (cap + Decimal("0.01")) * Decimal("1.10") + Decimal(17000)
-        self.assertLess((Decimal(150000) - next_cost) / next_cost, Decimal("0.40"))
-        incomplete = valuation()
-        incomplete["frais_portage_eur"] = ""
-        self.assertIn("frais_portage_eur", economics(Decimal(50000), incomplete)["donnees_manquantes"])
+    def test_starting_price_amount_is_parsed(self):
+        self.assertEqual(amount("60 000 €"), Decimal("60000"))
 
 
 class ClassificationTests(unittest.TestCase):
-    def test_free_occupation_is_the_only_required_business_proof(self):
+    def test_free_occupation_and_starting_price_are_required(self):
         self.assertEqual(classify(record(), NOW)["statut"], "retenu_sur_donnees_validees")
         unknown = record()
         unknown["faits"]["occupation"] = "inconnue"
         self.assertEqual(classify(unknown, NOW)["statut"], "a_verifier")
         self.assertEqual(classify(unknown, NOW, valuation())["statut"], "retenu_sur_donnees_validees")
+        missing_price = record()
+        missing_price["faits"].pop("mise_a_prix_eur")
+        self.assertEqual(classify(missing_price, NOW)["statut"], "a_verifier")
+        self.assertIn("prix de départ", classify(missing_price, NOW)["a_verifier"])
+        limit = record()
+        limit["faits"]["mise_a_prix_eur"] = "60000"
+        self.assertEqual(classify(limit, NOW)["statut"], "retenu_sur_donnees_validees")
+        over = record()
+        over["faits"]["mise_a_prix_eur"] = "60000.01"
+        self.assertEqual(classify(over, NOW)["statut"], "rejete")
 
     def test_occupancy_negation_future_and_contradiction(self):
         self.assertEqual(occupancy("Le bien est libre de toute occupation")[0], "libre")
@@ -99,14 +93,16 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(classify(row, NOW)["statut"], "retenu_sur_donnees_validees")
         self.assertEqual(works("Maison en cours de construction")[0], "necessaires")
 
-    def test_window_uses_paris_not_utc_and_includes_j4(self):
+    def test_auction_date_is_informative_and_never_delays_selection(self):
         row = record()
-        row["faits"]["date_vente"] = "2026-10-03"
-        self.assertEqual(classify(row, NOW)["jours_apres_audience"], 4)
-        row["faits"]["date_vente"] = "2026-10-07"
-        late_utc = datetime(2026, 10, 7, 23, tzinfo=timezone.utc)
-        self.assertEqual(classify(row, late_utc)["jours_apres_audience"], 1)
-        self.assertEqual(classify(row, NOW)["statut"], "rejete")
+        row["faits"]["date_vente"] = "2026-10-20"
+        selected = classify(row, NOW)
+        self.assertEqual(selected["jours_avant_enchere"], 13)
+        self.assertEqual(selected["statut"], "retenu_sur_donnees_validees")
+        row["faits"].pop("date_vente")
+        selected = classify(row, NOW)
+        self.assertIsNone(selected["jours_avant_enchere"])
+        self.assertEqual(selected["statut"], "retenu_sur_donnees_validees")
 
     def test_deadline_second_auction_and_price_are_informative(self):
         for field, value in [("date_limite_surenchere", "2026-10-06"), ("seconde_adjudication", True),
@@ -139,6 +135,14 @@ class ParserAndStateTests(unittest.TestCase):
         self.assertEqual(detail["faits"]["occupation"], "libre")
         self.assertEqual(detail["faits"]["prix_adjuge_eur"], "50000.00")
         self.assertEqual(detail["documents"], ["https://avoventes.fr/public/document.pdf"])
+
+    def test_all_case_documents_are_attached_without_a_cap(self):
+        links = "".join(f'<a href="/pieces/piece-{index}.pdf">Pièce {index}</a>' for index in range(35))
+        links += '<a href="https://www.7jours.fr/annonce/?justify=1">Cahier</a>'
+        html = f'<div id="content"><h1>Dossier complet</h1>Mise à prix : 10 000 euros. Le bien est libre de toute occupation. {links}</div>'
+        detail = parse_detail(html, URL, record())
+        self.assertEqual(len(detail["documents"]), 36)
+        self.assertIn("https://www.7jours.fr/annonce/?justify=1", detail["documents"])
 
     def test_starting_price_is_never_hammer_result(self):
         facts = facts_from_text("Mise à prix : 70 000 € Adjugé : Non indiqué Vente 06 octobre 2026", "avoventes.fr", detail=True)
@@ -175,10 +179,10 @@ class ParserAndStateTests(unittest.TestCase):
     def test_repeat_run_is_idempotent_and_refreshes_details(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "listing.html").write_text(LIST)
-            (root / "detail.html").write_text(DETAIL)
+            (root / "listing.html").write_text(LIST, encoding="utf-8")
+            (root / "detail.html").write_text(DETAIL, encoding="utf-8")
             mapping = {SOURCE["url"]: str(root / "listing.html"), URL: str(root / "detail.html")}
-            (root / "mapping.json").write_text(json.dumps(mapping))
+            (root / "mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
             args = argparse.Namespace(now=NOW.isoformat(), fixtures=str(root / "mapping.json"), pause=0,
                                      state=str(root / "etat.json"), output=str(root / "rapports"), catalogue=str(root / "catalogue.json"),
                                      valuations=str(root / "estimations.csv"), max_hearings=5, max_details=5)
@@ -189,11 +193,17 @@ class ParserAndStateTests(unittest.TestCase):
                 self.assertEqual(report["comptages"]["nouveaux_liens"], 0)
                 self.assertEqual(report["comptages"]["fiches_modifiees"], 0)
                 self.assertEqual(report["dossiers"], [])
-                (root / "detail.html").write_text(DETAIL.replace("50 000,00 euros", "60 000,00 euros"))
+                (root / "detail.html").write_text(DETAIL.replace("50 000,00 euros", "60 000,00 euros"), encoding="utf-8")
                 self.assertEqual(run(args), 0)
             report = json.loads((root / "rapports/dernier.json").read_text())
             self.assertEqual(report["comptages"]["fiches_modifiees"], 1)
             self.assertEqual(report["dossiers"][0]["faits"]["prix_adjuge_eur"], "60000.00")
+            self.assertTrue(any(item["champ"] == "faits.prix_adjuge_eur"
+                                for item in report["dossiers"][0]["nouveaux_elements_ce_passage"]))
+            self.assertGreaterEqual(len(report["dossiers"][0]["historique_mises_a_jour"]), 2)
+            markdown = (root / "rapports/dernier.md").read_text(encoding="utf-8")
+            self.assertIn("Date de l'enchère", markdown)
+            self.assertIn("Pièce 1", markdown)
 
     def test_fetch_failure_still_writes_partial_report(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -266,7 +276,7 @@ class FilterRegressionTests(unittest.TestCase):
         self.assertEqual(works('Pas de cave. Travaux nécessaires.')[0], 'necessaires')
 
     def test_argis_like_listing_remains_selected_when_free(self):
-        facts = facts_from_text('Vente le 6 octobre 2026. Adjudication : 26 000 euros. Une maison en mauvais état. Libre de toute occupation.', 'licitor.com', detail=True)
+        facts = facts_from_text('Vente le 6 octobre 2026. Mise à prix : 26 000 euros. Adjudication : 26 000 euros. Une maison en mauvais état. Libre de toute occupation.', 'licitor.com', detail=True)
         self.assertEqual(classify({**record(), 'faits': facts}, NOW)['statut'], 'retenu_sur_donnees_validees')
 
     def test_recent_document_only_excludes_incompatible_occupation(self):
