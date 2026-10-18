@@ -135,6 +135,21 @@ def network_order(sources):
     return ordered
 
 
+def network_order_urls(urls):
+    """Entrelace des URL déjà prioritaires pour utiliser les domaines en parallèle."""
+    queues = {}
+    for url in urls:
+        host = (urlparse(url).hostname or url).lower().removeprefix("www.")
+        queues.setdefault(host, []).append(url)
+    ordered = []
+    while queues:
+        for host in list(queues):
+            ordered.append(queues[host].pop(0))
+            if not queues[host]:
+                del queues[host]
+    return ordered
+
+
 def select_sources(database, state, now, *, max_profiles=700, max_directories=160,
                    max_discovered=100, profile_interval_hours=5,
                    directory_interval_hours=23, discovered_interval_hours=24):
@@ -902,7 +917,7 @@ def run(args):
         attempted = state.get("tentatives", {}).get(url, previous.get("controle_detail_utc", ""))
         candidates.append((priority, attempted, url))
     candidates.sort()
-    chosen = [url for _, _, url in candidates[:args.max_details]]
+    chosen = network_order_urls([url for _, _, url in candidates[:args.max_details]])
     failures, details_read, first_details = 0, 0, 0
     updated_urls = set()
 
