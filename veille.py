@@ -150,6 +150,14 @@ def network_order_urls(urls):
     return ordered
 
 
+def count_detail_for_selected_sources(log_by_url, sources, detail_read):
+    """Compte la fiche seulement pour les sources effectivement contrôlées ce passage."""
+    for source in sources:
+        log = log_by_url.get(source.get("url"))
+        if log is not None:
+            log["fiches_lues"] += bool(detail_read)
+
+
 def select_sources(database, state, now, *, max_profiles=700, max_directories=160,
                    max_discovered=100, profile_interval_hours=5,
                    directory_interval_hours=23, discovered_interval_hours=24):
@@ -955,8 +963,9 @@ def run(args):
                 if first_detail or changed:
                     updated_urls.add(url)
                 records[url] = parsed
-                for source in parsed["sources"]:
-                    log_by_url[source["url"]]["fiches_lues"] += bool(parsed.get("detail_lu_ce_passage"))
+                count_detail_for_selected_sources(
+                    log_by_url, parsed["sources"], parsed.get("detail_lu_ce_passage")
+                )
             if (details_read + failures) % 20 == 0:
                 print(f"Fiches : {details_read} lues, {failures} en échec", flush=True)
     new_urls = {url for url in records if url not in known_link_urls}
