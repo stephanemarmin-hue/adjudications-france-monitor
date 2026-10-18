@@ -119,6 +119,18 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(fetcher.metrics["tentatives_reprises"], 1)
         self.assertEqual(fetcher.metrics["reprises_reussies"], 1)
 
+    def test_exhausted_network_failure_defers_rest_of_same_domain(self):
+        state = {}
+        fetcher = Fetcher(pause=0, access_state=state, retries=0, clock=lambda: 1000)
+        with patch("acces.urlopen", side_effect=TimeoutError("délai dépassé")) as network:
+            with self.assertRaises(TimeoutError):
+                fetcher.get("https://exemple.fr/a")
+            with self.assertRaises(AccessDeferred):
+                fetcher.get("https://exemple.fr/b")
+        self.assertEqual(network.call_count, 1)
+        self.assertEqual(state["exemple.fr"]["attendre_jusqua_utc"], "1970-01-01T00:31:40+00:00")
+        self.assertEqual(state["exemple.fr"]["code_http"], "reseau")
+
     def test_html_without_content_type_is_accepted_by_signature(self):
         fetcher = Fetcher(pause=0)
         with patch("acces.urlopen", return_value=Response(b"<!doctype html><main>Annonce</main>", None)):
