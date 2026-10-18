@@ -6,10 +6,11 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
@@ -96,6 +97,147 @@ def canonical(url, base=""):
 
 def digest(url):
     return hashlib.sha256(url.encode()).hexdigest()
+
+
+def parsed_stamp(value):
+    try:
+        parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def source_due(source, attempts, now, interval_hours):
+    previous = parsed_stamp(attempts.get(source["url"], ""))
+    return previous is None or now - previous >= timedelta(hours=interval_hours)
+
+
+def select_sources(database, state, now, *, max_profiles=700, max_directories=50,
+                   max_discovered=100, profile_interval_hours=5,
+                   directory_interval_hours=168, discovered_interval_hours=24):
+    """Sélectionne toute la veille directe et fait tourner les deux grands référentiels."""
+    attempts = state.setdefault("tentatives_sources", {})
+    active = [source for source in database if source.get("active", True)]
+    daily, profiles, directories = [], [], []
+    for source in active:
+        usage = source.get("usage") or "veille_quotidienne"
+        if usage == "veille_rapide":
+            profiles.append(source)
+        elif usage == "decouverte_nationale":
+            directories.append(source)
+        else:
+            daily.append(source)
+    remembered = []
+    for url, item in state.get("sources_decouvertes", {}).items():
+        if not canonical(url) or any(source["url"] == url for source in active):
+            continue
+        remembered.append({"nom": item.get("nom") or url, "categorie": "source_decouverte",
+                           "url": url, "active": True, "usage": "veille_decouverte",
+                           "motif": f"Découverte depuis {item.get('provenance', 'une source surveillée')}"})
+
+    def rotating(rows, interval, maximum):
+        due = [row for row in rows if source_due(row, attempts, now, interval)]
+        due.sort(key=lambda row: (attempts.get(row["url"], ""), row["url"]))
+        return due[:maximum], len(due)
+
+    chosen_profiles, due_profiles = rotating(profiles, profile_interval_hours, max_profiles)
+    chosen_directories, due_directories = rotating(directories, directory_interval_hours, max_directories)
+    chosen_discovered, due_discovered = rotating(remembered, discovered_interval_hours, max_discovered)
+    selected = daily + chosen_profiles + chosen_directories + chosen_discovered
+    selected = list({source["url"]: source for source in selected}.values())
+    stats = {
+        "sources_base_total": len(database), "sources_actives_total": len(active),
+        "veille_quotidienne_total": len(daily), "veille_rapide_total": len(profiles),
+        "decouverte_nationale_total": len(directories), "sources_decouvertes_total": len(remembered),
+        "veille_quotidienne_selectionnees": len(daily),
+        "veille_rapide_selectionnees": len(chosen_profiles),
+        "decouverte_nationale_selectionnees": len(chosen_directories),
+        "sources_decouvertes_selectionnees": len(chosen_discovered),
+        "veille_rapide_en_retard": max(0, due_profiles - len(chosen_profiles)),
+        "decouverte_nationale_en_attente": max(0, due_directories - len(chosen_directories)),
+        "sources_decouvertes_en_retard": max(0, due_discovered - len(chosen_discovered)),
+        "cycle_decouverte_passages": math.ceil(len(directories) / max_directories) if max_directories else None,
+    }
+    return selected, stats
+
+
+DISCOVERY_TERMS = (
+    "adjudication", "enchere immobiliere", "encheres immobilieres", "vente judiciaire",
+    "ventes judiciaires", "vente aux encheres", "saisie immobiliere",
+)
+GENERIC_SITE_LABELS = {"site internet", "site web", "acceder au site", "voir le site", "website"}
+BLOCKED_DISCOVERY_HOSTS = {
+    "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com", "youtube.com",
+    "google.com", "google.fr", "goo.gl", "maps.google.com",
+}
+
+
+def discover_source_links(markup, page_url, source, timestamp):
+    """Repère les rubriques de ventes et les sites externes indiqués par les annuaires/profils."""
+    document = Document(markup)
+    page_host = (urlparse(page_url).hostname or "").removeprefix("www.")
+    found = {}
+    for node in document.nodes:
+        if node.tag != "a" or not node.attrs.get("href"):
+            continue
+        url = canonical(node.attrs["href"], page_url)
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").removeprefix("www.")
+        if not url or not host or host == page_host or host in BLOCKED_DISCOVERY_HOSTS:
+            continue
+        if parsed.path.lower().endswith((".pdf", ".jpg", ".jpeg", ".png", ".zip")):
+            continue
+        label = normalize(node.text()).strip(" .:;-")
+        searchable = normalize(f"{label} {parsed.path} {parsed.query}")
+        explicit_sale_page = any(term in searchable for term in DISCOVERY_TERMS)
+        directory_or_profile = source.get("usage") in {"veille_rapide", "decouverte_nationale"}
+        generic_site = directory_or_profile and (label in GENERIC_SITE_LABELS or label.startswith("site internet"))
+        if not explicit_sale_page and not generic_site:
+            continue
+        found[url] = {
+            "nom": node.text().strip() or f"Site découvert — {host}", "url": url,
+            "provenance": source["url"], "premiere_detection_utc": timestamp,
+            "derniere_detection_utc": timestamp,
+        }
+    return list(found.values())
+
+
+def wilson_lower(successes, total, z=1.6448536269514722):
+    """Borne basse unilatérale à 95 %, utilisée seulement sur un échantillon indépendant."""
+    if total <= 0:
+        return None
+    ratio = successes / total
+    denominator = 1 + z * z / total
+    centre = ratio + z * z / (2 * total)
+    margin = z * math.sqrt((ratio * (1 - ratio) + z * z / (4 * total)) / total)
+    return (centre - margin) / denominator
+
+
+def coverage_audit(path, known_urls):
+    """Mesure la détection contre un échantillon externe, sans inventer de pourcentage."""
+    if not path.exists():
+        return {"statut": "non_mesure", "motif": "fichier de contrôle indépendant absent",
+                "echantillon": 0, "detectees": 0, "taux_pct": None, "borne_basse_95_pct": None,
+                "objectif_95": False}
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    eligible = [row for row in rows if normalize(row.get("statut", "")) not in {"hors perimetre", "hors_perimetre"}
+                and (row.get("url_reference") or row.get("detectee"))]
+    successes = 0
+    for row in eligible:
+        declared = normalize(row.get("detectee", "")) in {"oui", "true", "1", "detectee"}
+        candidate_urls = {canonical(row.get("url_reference", "")), canonical(row.get("url_detectee", ""))} - {""}
+        successes += bool(declared or candidate_urls.intersection(known_urls))
+    total = len(eligible)
+    lower = wilson_lower(successes, total)
+    return {
+        "statut": "mesure" if total else "non_mesure",
+        "motif": "échantillon externe indépendant" if total else "échantillon externe vide",
+        "echantillon": total, "detectees": successes,
+        "taux_pct": round(successes * 100 / total, 2) if total else None,
+        "borne_basse_95_pct": round(lower * 100, 2) if lower is not None else None,
+        "objectif_95": bool(total >= 500 and lower is not None and lower >= .95),
+    }
 
 
 def atomic_json(path, value):
@@ -395,10 +537,10 @@ def cell(value):
 def source_interventions(state, logs, timestamp):
     """Mémorise la santé des sources et ne demande une action qu'en cas de blocage utile."""
     health = state.setdefault("sante_sources", {})
-    active_urls = {log["url"] for log in logs}
-    for url in set(health) - active_urls:
-        del health[url]
+    # Une partie de la base tourne par lots. Conserver la santé des sources non
+    # sélectionnées aujourd'hui évite de perdre leur historique entre deux lots.
     interventions = []
+    grouped_references = {}
     for log in logs:
         url = log["url"]
         previous = health.get(url, {})
@@ -444,11 +586,31 @@ def source_interventions(state, logs, timestamp):
         else:
             problem = f"Lecture impossible ou partielle depuis {failures} passages consécutifs : {log.get('erreur') or status}."
             action = "Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur."
-        interventions.append({
+        item = {
             "priorite": "urgente" if permanent else "à vérifier",
             "source": log["nom"], "url": url, "statut": status,
             "passages_consecutifs": max(failures, empty), "probleme": problem, "action": action,
-        })
+        }
+        if log.get("usage") in {"veille_rapide", "decouverte_nationale"}:
+            host = (urlparse(url).hostname or url).removeprefix("www.")
+            group = grouped_references.setdefault(host, {**item, "source": f"Référentiel — {host}",
+                                                          "nombre_sources": 0, "exemples": []})
+            group["nombre_sources"] += 1
+            group["passages_consecutifs"] = max(group["passages_consecutifs"], item["passages_consecutifs"])
+            group["exemples"].append(url)
+            if item["priorite"] == "urgente":
+                group["priorite"] = "urgente"
+        else:
+            interventions.append(item)
+    for host, item in grouped_references.items():
+        count = item["nombre_sources"]
+        item["probleme"] = (f"{count} adresse(s) du référentiel {host} présentent un blocage persistant. "
+                            f"Exemple : {item['probleme']}")
+        item["action"] = ("Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, "
+                          "puis transmettre la nouvelle rubrique nationale si elle existe.")
+        item["url"] = item["exemples"][0]
+        del item["exemples"]
+        interventions.append(item)
     return sorted(interventions, key=lambda item: (item["priorite"] != "urgente", item["source"]))
 
 
@@ -471,7 +633,8 @@ def save_report(folder, report):
             output["pieces_dossier"] = "; ".join(row.get("documents", []))
             writer.writerow(output)
     with (folder / "sources.csv").open("w", encoding="utf-8-sig", newline="") as stream:
-        cols = ["nom", "url", "statut", "liens_detectes", "pages_listes_lues", "pages_audiences_lues", "fiches_lues", "erreur", "controle_utc"]
+        cols = ["nom", "categorie", "usage", "url", "statut", "liens_detectes", "pages_listes_lues",
+                "pages_audiences_lues", "fiches_lues", "erreur", "controle_utc"]
         writer = csv.DictWriter(stream, fieldnames=cols, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(report["sources"])
@@ -485,6 +648,11 @@ def save_report(folder, report):
              f"{count.get('sources_accessibles', count['sources_ok'])}/{count['sources_actives']} pages sources accessibles ; "
              f"{count['liens_distincts']} liens distincts ; "
              f"{count['audiences_lues']} pages d'audience et {count['fiches_lues']} fiches détaillées lues.", "",
+             f"Base nationale : **{count.get('sources_base_total', count['sources_actives'])} adresses actives** ; "
+             f"{count.get('veille_quotidienne_selectionnees', 0)} pages directes, "
+             f"{count.get('veille_rapide_selectionnees', 0)} profils et "
+             f"{count.get('decouverte_nationale_selectionnees', 0)} annuaires contrôlés pendant ce passage. "
+             f"{count.get('sources_decouvertes_total', 0)} nouvelle(s) source(s) mémorisée(s).", "",
              f"Nouveautés : {count['nouveaux_liens']} liens ; {count.get('fiches_nouvellement_lues', 0)} fiches lues pour la première fois ; "
              f"{count['fiches_modifiees']} fiches modifiées depuis le passage précédent.", "",
              f"Pièces : {count.get('documents_pdf_consultes', 0)} PDF accessibles ; {count.get('pages_pdf_traitees', 0)} pages traitées ce passage, "
@@ -492,6 +660,17 @@ def save_report(folder, report):
              f"{count.get('acces_differes', 0)} requêtes différées après une limite ou un refus d'accès.", "",
              f"Interventions : **{count.get('interventions_requises', 0)} demande(s)** nécessitent une vérification humaine.", "",
              "Le nombre de liens inclut des audiences et des annonces anciennes ou futures. La couverture est limitée aux pages listées et au budget de lecture indiqué ci-dessous.", "",
+             "## Mesure indépendante de la fiabilité", ""]
+    audit = report.get("controle_couverture", {})
+    if audit.get("statut") == "mesure":
+        lines += [f"Échantillon externe : **{audit['detectees']}/{audit['echantillon']} détectées** "
+                  f"({audit['taux_pct']} % ; borne basse unilatérale à 95 % : {audit['borne_basse_95_pct']} %).",
+                  "", ("Objectif de fiabilité 95 % démontré." if audit.get("objectif_95") else
+                       "Objectif de fiabilité 95 % non encore démontré : il faut au moins 500 annonces indépendantes et une borne basse d'au moins 95 %."), ""]
+    else:
+        lines += ["Aucun pourcentage de fiabilité n'est annoncé : l'échantillon externe indépendant est encore vide. "
+                  "Le moteur publiera la mesure dès que ce fichier de contrôle sera alimenté.", ""]
+    lines += [
              "## Interventions requises", "",
              "| Priorité | Source | Problème | Action demandée |", "|---|---|---|---|"]
     for item in report.get("interventions", []):
@@ -565,16 +744,35 @@ def run(args):
     known_link_urls = set(state.get("liens", {}))
     previous_fiches = dict(state.get("fiches", {}))
     fetcher = Fetcher(fixture_map, pause=args.pause, access_state=state.setdefault("acces", {}))
-    sources = load_sources()
+    source_database = load_sources()
+    max_profile_sources = getattr(args, "max_profile_sources", 700)
+    max_directory_sources = getattr(args, "max_directory_sources", 50)
+    max_discovered_sources = getattr(args, "max_discovered_sources", 100)
+    profile_interval_hours = getattr(args, "profile_interval_hours", 6)
+    directory_interval_hours = getattr(args, "directory_interval_hours", 168)
+    discovered_interval_hours = getattr(args, "discovered_interval_hours", 24)
+    sources, source_coverage = select_sources(
+        source_database, state, now, max_profiles=max_profile_sources,
+        max_directories=max_directory_sources, max_discovered=max_discovered_sources,
+        profile_interval_hours=profile_interval_hours,
+        directory_interval_hours=directory_interval_hours,
+        discovered_interval_hours=discovered_interval_hours,
+    )
     records, logs, incidents = {}, [], []
     max_listing_pages = getattr(args, "max_listing_pages", 3)
+    max_profile_pages = getattr(args, "max_profile_pages", 2)
+    max_discovery_pages = getattr(args, "max_discovery_pages", 1)
 
     def listing(source):
         log = {**source, "controle_utc": stamp, "statut": "ok", "liens_detectes": 0,
                "pages_listes_lues": 0, "pages_audiences_lues": 0, "fiches_lues": 0, "erreur": ""}
-        combined, page_incidents = {}, []
+        combined, page_incidents, discoveries = {}, [], []
         pending, seen = [source["url"]], set()
-        while pending and len(seen) < max_listing_pages:
+        usage = source.get("usage") or "veille_quotidienne"
+        page_budget = (max_profile_pages if usage == "veille_rapide" else
+                       max_discovery_pages if usage == "decouverte_nationale" else
+                       max_listing_pages)
+        while pending and len(seen) < page_budget:
             url = pending.pop(0)
             if url in seen:
                 continue
@@ -584,6 +782,7 @@ def run(args):
                 log["pages_listes_lues"] += 1
                 incoming, _ = seed_records(markup, resolved, source, stamp)
                 merge_records(combined, incoming)
+                discoveries.extend(discover_source_links(markup, resolved, source, stamp))
                 pending.extend(page for page in pagination_pages(markup, resolved) if page not in seen and page not in pending)
             except Exception as exc:
                 item = incident(exc, url, "source" if url == source["url"] else "pagination_source")
@@ -596,14 +795,49 @@ def run(args):
         log["liens_detectes"] = len(combined)
         if not combined and log["statut"] == "ok":
             log["statut"] = "aucun lien détecté — structure à contrôler"
-        return combined, log, page_incidents
+        return combined, log, page_incidents, discoveries
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        for incoming, log, listing_incidents in executor.map(listing, sources):
-            merge_records(records, incoming)
-            logs.append(log)
-            incidents.extend(listing_incidents)
-            print(f"{log['nom']} : {log['liens_detectes']} lien(s), {log['statut']}", flush=True)
+    discovered_during_passage = []
+
+    def scan(batch):
+        if not batch:
+            return
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for incoming, log, listing_incidents, discoveries in executor.map(listing, batch):
+                merge_records(records, incoming)
+                logs.append(log)
+                incidents.extend(listing_incidents)
+                discovered_during_passage.extend(discoveries)
+                state.setdefault("tentatives_sources", {})[log["url"]] = stamp
+                print(f"{log['nom']} : {log['liens_detectes']} lien(s), {log['statut']}", flush=True)
+
+    scan(sources)
+    known_source_urls = {source["url"] for source in source_database}
+    remembered = state.setdefault("sources_decouvertes", {})
+    newly_discovered = []
+    for item in discovered_during_passage:
+        was_known = item["url"] in remembered
+        previous = remembered.get(item["url"], {})
+        remembered[item["url"]] = {**previous, **item,
+                                   "premiere_detection_utc": previous.get("premiere_detection_utc", item["premiere_detection_utc"])}
+        if not was_known and item["url"] not in known_source_urls:
+            newly_discovered.append(item)
+    already_selected = {source["url"] for source in sources}
+    remaining_discovered_budget = max(0, max_discovered_sources - source_coverage["sources_decouvertes_selectionnees"])
+    immediate = [{"nom": item["nom"], "categorie": "source_decouverte", "url": item["url"],
+                  "active": True, "usage": "veille_decouverte", "motif": f"Découverte depuis {item['provenance']}"}
+                 for item in {row["url"]: row for row in newly_discovered}.values()
+                 if item["url"] not in already_selected][:remaining_discovered_budget]
+    first_discovery_count = len(discovered_during_passage)
+    scan(immediate)
+    for item in discovered_during_passage[first_discovery_count:]:
+        previous = remembered.get(item["url"], {})
+        remembered[item["url"]] = {**previous, **item,
+                                   "premiere_detection_utc": previous.get("premiere_detection_utc", item["premiere_detection_utc"])}
+    sources += immediate
+    source_coverage["sources_decouvertes_selectionnees"] += len(immediate)
+    source_coverage["sources_decouvertes_total"] = len(remembered)
+    source_coverage["sources_selectionnees_ce_passage"] = len(sources)
     log_by_url = {log["url"]: log for log in logs}
     hearing_urls = []
     for url, record in list(records.items()):
@@ -756,6 +990,8 @@ def run(args):
     for url, record in records.items():
         state.setdefault("liens", {})[url] = {"premiere_detection": state.get("liens", {}).get(url, {}).get("premiere_detection", stamp), "dernier_controle": stamp}
     interventions = source_interventions(state, logs, stamp)
+    control_path = Path(getattr(args, "coverage_control", ROOT / "controle_couverture.csv"))
+    audit = coverage_audit(control_path, set(state.get("liens", {})))
     state["version"], state["dernier_passage"] = 1, stamp
     atomic_json(state_path, state)
     unknown = sum(not row.get("faits", {}).get("date_vente") for row in qualified)
@@ -765,8 +1001,13 @@ def run(args):
               f"{unknown} liens de fiches sans date d'enchère extraite restent suivis ; la date est informative et non éliminatoire.",
               "Les nouvelles audiences Licitor sont lues dès leur détection, puis les autres tournent selon la dernière tentative. ",
               f"Pagination des listes : au plus {max_listing_pages} pages par source et par passage.",
-              "Les 1 955 adresses du référentiel national restent conservées mais ne sont pas interrogées chaque jour ; "
-              "la veille quotidienne porte sur les sources éditoriales et pages de ventes qualifiées.",
+              f"Toute la base de {source_coverage['sources_base_total']} adresses est active : "
+              f"{source_coverage['veille_quotidienne_total']} pages directes à chaque passage, "
+              f"{source_coverage['veille_rapide_total']} profils en rotation rapide et "
+              f"{source_coverage['decouverte_nationale_total']} annuaires/juridictions en rotation hebdomadaire.",
+              f"File après sélection : {source_coverage['veille_rapide_en_retard']} profil(s) rapide(s) en retard, "
+              f"{source_coverage['decouverte_nationale_en_attente']} annuaire(s) dus en attente et "
+              f"{source_coverage['sources_decouvertes_en_retard']} source(s) découverte(s) en retard.",
               "Le registre central Registre_Adjudications.xlsx n'est pas modifié par ce programme.",
               "Une opportunité n'est retenue que si l'occupation libre est confirmée et si la mise à prix publiée ne dépasse pas 60 000 €."]
     limits.append(f"PDF : budget de {max_documents} documents, {max_pdf_pages} pages et {max_ocr_pages} pages OCR ; "
@@ -792,9 +1033,11 @@ def run(args):
                       "sans_date_enchere": unknown, "liens_pdf_a_lire": pdf_count, "fiches_candidates_non_lues": max(0, len(candidates) - len(chosen)),
                       "documents_pdf_consultes": sum(x["statut"] in {"lu", "partiel"} for x in documents),
                       "documents_pdf_complets": sum(x["statut"] == "lu" for x in documents),
-                      "documents_pdf_detectes": len(tasks), "interventions_requises": len(interventions), **reader.metrics, **fetcher.metrics},
+                      "documents_pdf_detectes": len(tasks), "interventions_requises": len(interventions),
+                      **source_coverage, **reader.metrics, **fetcher.metrics},
         "dossiers": daily, "sources": logs, "incidents": incidents, "limites": limits, "documents": documents,
         "delais_acces": state.get("acces", {}), "historique_documents": history, "interventions": interventions,
+        "controle_couverture": audit,
     }
     save_report(Path(args.output), report)
     # Le catalogue complet reste dans l'artefact, pas dans le rapport public résumé.
@@ -813,20 +1056,32 @@ def main():
     parser.add_argument("--output", default=str(ROOT / "rapports"))
     parser.add_argument("--catalogue", default=str(ROOT / "data/catalogue.json"))
     parser.add_argument("--valuations", default=str(ROOT / "estimations.csv"))
-    parser.add_argument("--max-hearings", type=int, default=40)
-    parser.add_argument("--max-listing-pages", type=int, default=3)
-    parser.add_argument("--max-details", type=int, default=120)
-    parser.add_argument("--max-documents", type=int, default=12)
-    parser.add_argument("--max-pdf-pages", type=int, default=80)
-    parser.add_argument("--max-ocr-pages", type=int, default=6)
+    parser.add_argument("--max-hearings", type=int, default=200)
+    parser.add_argument("--max-listing-pages", type=int, default=12)
+    parser.add_argument("--max-profile-pages", type=int, default=2)
+    parser.add_argument("--max-discovery-pages", type=int, default=1)
+    parser.add_argument("--max-profile-sources", type=int, default=700)
+    parser.add_argument("--max-directory-sources", type=int, default=50)
+    parser.add_argument("--max-discovered-sources", type=int, default=100)
+    parser.add_argument("--profile-interval-hours", type=float, default=5)
+    parser.add_argument("--directory-interval-hours", type=float, default=168)
+    parser.add_argument("--discovered-interval-hours", type=float, default=24)
+    parser.add_argument("--max-details", type=int, default=800)
+    parser.add_argument("--max-documents", type=int, default=100)
+    parser.add_argument("--max-pdf-pages", type=int, default=800)
+    parser.add_argument("--max-ocr-pages", type=int, default=80)
     parser.add_argument("--pause", type=float, default=0.8)
+    parser.add_argument("--coverage-control", default=str(ROOT / "controle_couverture.csv"))
     parser.add_argument("--now", help="date ISO avec fuseau, pour vérification reproductible")
     parser.add_argument("--fixtures", help="JSON URL -> fichier HTML local pour vérification sans réseau")
     args = parser.parse_args()
-    if min(args.max_hearings, args.max_details, args.max_documents, args.max_pdf_pages, args.max_ocr_pages, args.pause) < 0:
+    if min(args.max_hearings, args.max_details, args.max_documents, args.max_pdf_pages, args.max_ocr_pages,
+           args.max_profile_sources, args.max_directory_sources, args.max_discovered_sources,
+           args.profile_interval_hours, args.directory_interval_hours, args.discovered_interval_hours,
+           args.pause) < 0:
         parser.error("budgets et pause doivent être positifs ou nuls")
-    if args.max_listing_pages < 1:
-        parser.error("--max-listing-pages doit être au moins égal à 1")
+    if min(args.max_listing_pages, args.max_profile_pages, args.max_discovery_pages) < 1:
+        parser.error("les budgets de pagination doivent être au moins égaux à 1")
     return run(args)
 
 
