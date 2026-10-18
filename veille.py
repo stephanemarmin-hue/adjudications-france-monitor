@@ -112,9 +112,9 @@ def source_due(source, attempts, now, interval_hours):
     return previous is None or now - previous >= timedelta(hours=interval_hours)
 
 
-def select_sources(database, state, now, *, max_profiles=700, max_directories=50,
+def select_sources(database, state, now, *, max_profiles=700, max_directories=160,
                    max_discovered=100, profile_interval_hours=5,
-                   directory_interval_hours=168, discovered_interval_hours=24):
+                   directory_interval_hours=23, discovered_interval_hours=24):
     """Sélectionne toute la veille directe et fait tourner les deux grands référentiels."""
     attempts = state.setdefault("tentatives_sources", {})
     active = [source for source in database if source.get("active", True)]
@@ -746,10 +746,10 @@ def run(args):
     fetcher = Fetcher(fixture_map, pause=args.pause, access_state=state.setdefault("acces", {}))
     source_database = load_sources()
     max_profile_sources = getattr(args, "max_profile_sources", 700)
-    max_directory_sources = getattr(args, "max_directory_sources", 50)
+    max_directory_sources = getattr(args, "max_directory_sources", 160)
     max_discovered_sources = getattr(args, "max_discovered_sources", 100)
     profile_interval_hours = getattr(args, "profile_interval_hours", 6)
-    directory_interval_hours = getattr(args, "directory_interval_hours", 168)
+    directory_interval_hours = getattr(args, "directory_interval_hours", 23)
     discovered_interval_hours = getattr(args, "discovered_interval_hours", 24)
     sources, source_coverage = select_sources(
         source_database, state, now, max_profiles=max_profile_sources,
@@ -1004,7 +1004,7 @@ def run(args):
               f"Toute la base de {source_coverage['sources_base_total']} adresses est active : "
               f"{source_coverage['veille_quotidienne_total']} pages directes à chaque passage, "
               f"{source_coverage['veille_rapide_total']} profils en rotation rapide et "
-              f"{source_coverage['decouverte_nationale_total']} annuaires/juridictions en rotation hebdomadaire.",
+              f"{source_coverage['decouverte_nationale_total']} annuaires/juridictions en rotation quotidienne.",
               f"File après sélection : {source_coverage['veille_rapide_en_retard']} profil(s) rapide(s) en retard, "
               f"{source_coverage['decouverte_nationale_en_attente']} annuaire(s) dus en attente et "
               f"{source_coverage['sources_decouvertes_en_retard']} source(s) découverte(s) en retard.",
@@ -1061,10 +1061,10 @@ def main():
     parser.add_argument("--max-profile-pages", type=int, default=2)
     parser.add_argument("--max-discovery-pages", type=int, default=1)
     parser.add_argument("--max-profile-sources", type=int, default=700)
-    parser.add_argument("--max-directory-sources", type=int, default=50)
+    parser.add_argument("--max-directory-sources", type=int, default=160)
     parser.add_argument("--max-discovered-sources", type=int, default=100)
     parser.add_argument("--profile-interval-hours", type=float, default=5)
-    parser.add_argument("--directory-interval-hours", type=float, default=168)
+    parser.add_argument("--directory-interval-hours", type=float, default=23)
     parser.add_argument("--discovered-interval-hours", type=float, default=24)
     parser.add_argument("--max-details", type=int, default=800)
     parser.add_argument("--max-documents", type=int, default=100)
