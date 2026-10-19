@@ -1,6 +1,6 @@
 # Interventions requises
 
-Contrôle : **2026-10-19T18:50:04.674107+02:00** (Europe/Paris).
+Contrôle : **2026-10-19T19:20:38.208979+02:00** (Europe/Paris).
 
 ## 1. Référentiel — ca-agen.justice.fr — urgente
 
@@ -34,26 +34,82 @@ Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exi
 
 Lien direct : [http://www.ca-toulouse.justice.fr/](http://www.ca-toulouse.justice.fr/)
 
-## 5. Enchères Publiques - immobilier — à vérifier
+## 5. Référentiel — immoenchere.fr — urgente
 
-Accès refusé ou différé depuis 13 passages consécutifs.
+168 adresse(s) du référentiel immoenchere.fr présentent un blocage persistant. Exemple : La page surveillée n'existe plus (HTTP 404).
 
-Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
+Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
 
-Lien direct : [https://encheres-publiques.com/fr/ventes/immobilier](https://encheres-publiques.com/fr/ventes/immobilier)
+Lien direct : [https://www.immoenchere.fr/avocats/aarpi-adagas-caou-associe-scp-duhamel-et-associes](https://www.immoenchere.fr/avocats/aarpi-adagas-caou-associe-scp-duhamel-et-associes)
 
-## 6. Patrick Barret et Associés — ventes judiciaires — à vérifier
+## 6. Référentiel — lannuaire.service-public.gouv.fr — urgente
 
-Lecture impossible ou partielle depuis 13 passages consécutifs : <urlopen error timed out>.
+1 adresse(s) du référentiel lannuaire.service-public.gouv.fr présentent un blocage persistant. Exemple : La page surveillée n'existe plus (HTTP 404).
 
-Action : Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur.
+Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
 
-Lien direct : [https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm](https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm)
+Lien direct : [https://lannuaire.service-public.gouv.fr/auvergne-rhone-alpes/haute-loire/f4b37c62-2238-4b4f-aca1-c9d54d3effc9](https://lannuaire.service-public.gouv.fr/auvergne-rhone-alpes/haute-loire/f4b37c62-2238-4b4f-aca1-c9d54d3effc9)
 
-## 7. Petites Affiches - enchères immobilières — à vérifier
+## 7. Site Internet — urgente
 
-Accès refusé ou différé depuis 13 passages consécutifs.
+Le nom de domaine ne répond plus.
 
-Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
 
-Lien direct : [https://www.petitesaffiches.fr/encheres-immobilieres/](https://www.petitesaffiches.fr/encheres-immobilieres/)
+Lien direct : [http://www.brummetassocies.com/](http://www.brummetassocies.com/)
+
+## 8. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://faivre-avocat.com/index.php](http://faivre-avocat.com/index.php)
+
+## 9. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.cbml-avocats.fr](http://www.cbml-avocats.fr)
+
+## 10. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.defosdurau-cambriel-rembliere.com/](http://www.defosdurau-cambriel-rembliere.com/)
+
+## 11. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.jpportet.fr/](http://www.jpportet.fr/)
+
+## 12. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.cuvreau-dauga.com/](http://www.cuvreau-dauga.com/)
+
+## 13. Site Internet — urgente
+
+La page surveillée n'existe plus (HTTP 404).
+
+Action : Ouvrir le lien, retrouver la nouvelle rubrique de ventes et transmettre sa nouvelle adresse.
+
+Lien direct : [http://www.avocats-rvf.fr/](http://www.avocats-rvf.fr/)
+
+## 14. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.toullec-avocats.com](http://www.toullec-avocats.com)
