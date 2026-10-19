@@ -1995,3 +1995,11 @@ Vench - ventes à venir,site_pro,https://www.vench.fr/prochaines-ventes-aux-ench
 Vench - résultats et surenchères,site_pro,https://www.vench.fr/resultats-des-ventes-encheres-immobilieres.html,1,veille_quotidienne,Page nationale ou régionale de ventes
 UDA Avocats - Saint-Etienne,avocat,https://uda-avocats.com/nos-saisies-immobilieres/,1,veille_quotidienne,Page de ventes d'un cabinet identifiée directement
 Avoventes - Tribunal de Saint-Etienne,site_pro,https://avoventes.fr/recherche?display=liste&order=asc&prix_max=&prix_min=&sort=prix&tgis%5B%5D=133,1,veille_quotidienne,Page nationale ou régionale de ventes
+EnchèresImmobilieres.fr - biens en vente,site_pro,https://encheresimmobilieres.fr/biens-en-vente,1,veille_quotidienne,Page nationale ou régionale de ventes
+Barreau du Val-de-Marne - ventes immobilières,barreau,https://avocats-valdemarne.com/services/ventes-immobilieres,1,veille_quotidienne,Page de ventes immobilières d'un barreau
+Tribuca - passerelle ventes aux enchères,journal,https://tribuca.net/,1,decouverte_nationale,Passerelle contrôlée par rotation vers EnchèresImmobilieres.fr sans créer de doublon
+Mon Petit MDB - espace biens,site_pro,https://www.monpetitmdb.fr/biens,0,acces_authentifie,Redirection vers une connexion ; aucun identifiant n'est stocké dans le dépôt public
+Agorastore Immo - ventes immobilières,site_pro,https://www.agorastore-immo.fr/ventes-immobilieres,0,hors_perimetre,Ventes volontaires de collectivités et entreprises ; ne pas confondre avec une adjudication judiciaire
+Medias24 - annonces judiciaires Maroc,journal,https://annoncesjudiciaires.medias24.com/,0,hors_perimetre,Portail marocain publié en dirhams ; hors ventes judiciaires françaises en euros
+Enchères du Domaine,site_pro,https://encheres-domaine.gouv.fr/,0,hors_perimetre,Ventes mobilières de l'Etat ; les cessions immobilières relèvent d'un autre portail
+data.gouv.fr - catalogue public,site_pro,https://www.data.gouv.fr/,0,source_donnees,Catalogue de jeux de données sans flux d'annonces d'adjudications immobilières filtrable

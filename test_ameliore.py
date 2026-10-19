@@ -16,6 +16,7 @@ from urllib.error import HTTPError
 from acces import AccessDeferred, Fetcher, PdfDocument, retry_after
 from pieces import PdfReader, page_evidence, summarize_evidence
 from qualification import classify
+from monitor import is_candidate_link
 from optimise_sources import optimise_rows
 from test_veille import DETAIL, LIST, NOW, SOURCE, URL, record
 from veille import (count_detail_for_selected_sources, coverage_audit, discover_source_links,
@@ -148,10 +149,31 @@ class SourceOptimisationTests(unittest.TestCase):
         ]
         output, counts = optimise_rows(rows)
         self.assertEqual(counts, {"veille_quotidienne": 1, "veille_rapide": 1,
-                                  "decouverte_nationale": 1, "total": 3})
+                                  "decouverte_nationale": 1, "non_collectees": 0, "total": 3})
         self.assertEqual([row["active"] for row in output], ["1", "1", "1"])
         self.assertEqual([row["usage"] for row in output],
                          ["veille_quotidienne", "veille_rapide", "decouverte_nationale"])
+
+    def test_non_collectable_references_stay_documented_but_inactive(self):
+        rows = [
+            {"nom": "Accès privé", "categorie": "site_pro", "url": "https://prive.fr/",
+             "active": "1", "usage": "acces_authentifie", "motif": "Connexion requise"},
+            {"nom": "Hors France", "categorie": "journal", "url": "https://hors-france.test/",
+             "active": "1", "usage": "hors_perimetre", "motif": "Hors France"},
+        ]
+        output, counts = optimise_rows(rows)
+        self.assertEqual([row["active"] for row in output], ["0", "0"])
+        self.assertEqual(counts["non_collectees"], 2)
+
+    def test_new_direct_sources_only_accept_property_detail_pages(self):
+        self.assertTrue(is_candidate_link(
+            "https://encheresimmobilieres.fr/biens-en-vente",
+            "https://encheresimmobilieres.fr/ventes/9601-appartement-exemple", "Appartement"))
+        self.assertTrue(is_candidate_link(
+            "https://avocats-valdemarne.com/services/ventes-immobilieres",
+            "https://avocats-valdemarne.com/services/ventes-immobilieres/1084-maison-1008", "Maison"))
+        self.assertFalse(is_candidate_link(
+            "https://tribuca.net/", "https://tribuca.net/credit-immobilier", "Crédit immobilier"))
 
     def test_scheduler_scans_direct_pages_and_rotates_oldest_sources(self):
         rows = [

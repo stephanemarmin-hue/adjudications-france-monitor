@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILE = ROOT / "sources.csv"
 FIELDS = ["nom", "categorie", "url", "active", "usage", "motif"]
+NON_COLLECTED_USAGES = {"acces_authentifie", "hors_perimetre", "source_donnees"}
 
 
 def is_generated_reference(row: dict[str, str]) -> bool:
@@ -46,12 +47,22 @@ def scheduled_usage(row: dict[str, str]) -> tuple[str, str]:
 
 def optimise_rows(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, int]]:
     output = []
-    daily = rapid = discovery = 0
+    daily = rapid = discovery = non_collected = 0
     for original in rows:
         row = dict(original)
-        if is_generated_reference(row):
+        usage = (row.get("usage") or "").strip()
+        if usage in NON_COLLECTED_USAGES:
+            row["active"] = "0"
+            non_collected += 1
+        elif is_generated_reference(row):
             usage, reason = scheduled_usage(row)
             row.update(active="1", usage=usage, motif=reason)
+            if usage == "veille_rapide":
+                rapid += 1
+            else:
+                discovery += 1
+        elif usage in {"veille_rapide", "decouverte_nationale"}:
+            row["active"] = "1"
             if usage == "veille_rapide":
                 rapid += 1
             else:
@@ -61,7 +72,8 @@ def optimise_rows(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], dic
             daily += 1
         output.append(row)
     return output, {"veille_quotidienne": daily, "veille_rapide": rapid,
-                    "decouverte_nationale": discovery, "total": len(output)}
+                    "decouverte_nationale": discovery, "non_collectees": non_collected,
+                    "total": len(output)}
 
 
 def optimise(path: Path = SOURCE_FILE) -> dict[str, int]:
@@ -83,5 +95,6 @@ if __name__ == "__main__":
         f"Sources : {counts['veille_quotidienne']} en veille quotidienne ; "
         f"{counts['veille_rapide']} profils en veille rapide ; "
         f"{counts['decouverte_nationale']} annuaires en découverte nationale ; "
-        f"{counts['total']} adresses actives au total."
+        f"{counts['non_collectees']} références documentées mais non collectées ; "
+        f"{counts['total']} références au total."
     )

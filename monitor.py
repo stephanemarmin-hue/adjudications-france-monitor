@@ -31,11 +31,17 @@ TIMEOUT_SECONDS = 20
 # Chemins observés sur les pages sources. Les sources inconnues conservent
 # la recherche par mots-clés; ces règles écartent les menus et abonnements.
 SOURCE_PATTERNS = {
+    "encheresimmobilieres.fr": r"^/ventes/\d+-",
     "licitor.com": r"^/ventes-judiciaires-immobilieres/",
     "avoventes.fr": r"^/enchere/",
     "vench.fr": r"^/vente-\d+-",
     "encheres-publiques.com": r"^/(?:fr/)?(?:encheres/immobilier/[^/]+/[^/]+/[^/]+_\d+|evenements/[^/]+/[^/]+_\d+)$",
     "info-encheres.com": r"^/\d+-d-",
+    "avocats-valdemarne.com": r"^/services/ventes-immobilieres/\d+-",
+    # Tribuca est une passerelle vers encheresimmobilieres.fr, pas un
+    # catalogue autonome. La découverte inter-domaines reste assurée par
+    # veille.discover_source_links sans créer une fausse fiche Tribuca.
+    "tribuca.net": r"(?!)",
     "petitesaffiches.fr": r"^/encheres-immobilieres/vente/immobiliere/",
     "lagazettefrance.fr": r"^/annonce-legale/",
     "informateurjudiciaire.fr": r"^/annonces-legales/[^/]+/",

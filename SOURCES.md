@@ -1,25 +1,44 @@
 # État des sources — 18 octobre 2026
 
-La base `sources.csv` contient **1 996 adresses actives** : **41 sources directes**, **684 profils en veille rapide** et **1 271 entrées d'annuaire/juridiction en découverte nationale**. Aucune adresse n'est supprimée. Le rapport détaillé du passage est publié dans [rapports/sources.csv](rapports/sources.csv), les nouveautés dans [rapports/dernier.md](rapports/dernier.md) et les blocages nécessitant une action dans [rapports/interventions.md](rapports/interventions.md).
+La base `sources.csv` contient **2 004 adresses documentées, dont 1 999 actives** : **43 sources directes**, **684 profils en veille rapide** et **1 272 entrées d'annuaire/juridiction en découverte nationale**. Cinq références restent inscrites mais ne sont pas collectées, afin de ne pas mélanger connexion privée, ventes non judiciaires, données génériques ou annonces hors de France. Le rapport détaillé du passage est publié dans [rapports/sources.csv](rapports/sources.csv), les nouveautés dans [rapports/dernier.md](rapports/dernier.md) et les blocages nécessitant une action dans [rapports/interventions.md](rapports/interventions.md).
 
 ## Configuration par rythmes
 
 | Secteur | Pages en veille quotidienne |
 |---|---:|
-| Plateformes nationales (`site_pro`) | 9 |
+| Plateformes nationales (`site_pro`) | 10 |
 | Journaux d'annonces (`journal`) | 6 |
 | Sites de cabinets (`avocat`) | 25 |
-| Barreau | 1 |
-| **Total** | **41** |
+| Barreau | 2 |
+| **Total** | **43** |
 
 Chaque liste peut être suivie sur plusieurs pages, dans le budget configuré. Les nouveaux liens sont prioritaires ; les fiches déjà connues sont relues par rotation pour détecter les informations ajoutées. « Accessible » ne signifie pas qu'une annonce a été trouvée.
 
 | Rythme | Volume | Fréquence |
 |---|---:|---|
-| Pages directes de ventes | 41 | À chacun des huit passages quotidiens |
+| Pages directes de ventes | 43 | À chacun des huit passages quotidiens |
 | Profils d'avocats et annonceurs | 684 | Quand ils sont dus, espacés d'environ 6 heures, dans une capacité de 700 |
-| Annuaires, greffes et juridictions | 1 271 | 160 par passage, les plus anciens d'abord ; cycle national d'environ une journée |
+| Annuaires, greffes et juridictions | 1 272 | 160 par passage, les plus anciens d'abord ; cycle national d'environ une journée |
 | Sites découverts automatiquement | Variable | Contrôle immédiat puis toutes les 24 heures |
+
+## Sites demandés et mode d'exploitation
+
+| Site | Intégration du moteur |
+|---|---|
+| EnchèresImmobilieres.fr | Collecte directe de la liste, de la pagination, des fiches et des pièces publiques |
+| Enchères Publiques | Déjà en collecte directe ; un refus HTTP 403 est différé sans contournement |
+| Licitor | Déjà en collecte directe des audiences et fiches publiques |
+| Barreau du Val-de-Marne | Collecte directe ajoutée sur la vraie rubrique de ventes immobilières |
+| AvoVentes | Déjà en collecte directe nationale |
+| Tribuca | Source de découverte vers EnchèresImmobilieres.fr, sans doublon de fiche |
+| Vench | Déjà en collecte directe de la partie publique ; la restriction payante est signalée |
+| Mon Petit MDB | Référence conservée, collecte désactivée car `/biens` redirige vers une connexion |
+| Agorastore Immo | Référence conservée hors sélection : ventes volontaires, pas adjudications judiciaires |
+| Medias24 | Référence conservée hors périmètre : annonces marocaines en dirhams |
+| Enchères du Domaine | Référence conservée hors sélection : ventes mobilières de l'État |
+| data.gouv.fr | Référence de données, sans flux d'adjudications immobilières exploitable |
+| Info-Enchères | Déjà en collecte directe ; les incidents DNS sont signalés et retentés |
+| La Gazette France | Déjà en collecte directe de la rubrique ventes aux enchères |
 
 ## Référentiel national
 
