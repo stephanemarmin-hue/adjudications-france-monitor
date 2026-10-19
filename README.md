@@ -58,12 +58,22 @@ Le rapport quotidien affiche uniquement les dossiers **détectés ou enrichis pe
 
 Le fichier `estimations.csv` peut confirmer manuellement une occupation libre lorsque la date de vérification et la source d'occupation ont moins de sept jours. La mise à prix doit toujours provenir de la publication du dossier.
 
+## Canal privé Gmail
+
+Le workflow peut lire une boîte Gmail dédiée par IMAP, sans publier son adresse ni son contenu. Il traite uniquement les messages portant le libellé `Adjudications-Nouveau`, puis les classe dans `Adjudications-Traite`, `Adjudications-A-Verifier`, `Adjudications-Intervention` ou `Adjudications-Hors-Perimetre`.
+
+`gmail_ingest.py` extrait les liens publics, la mise à prix, la date de l'enchère et le texte lisible des PDF. `gmail_digest.py` envoie ensuite le résultat à la même boîte : biens à 60 000 € maximum, prix à vérifier, dates, liens et demandes d'intervention. Les messages et pièces jointes restent dans Gmail. Ils ne sont ni committés dans ce dépôt public, ni ajoutés aux artefacts GitHub. Le canal Gmail reste ainsi privé et séparé du rapport public.
+
+Deux secrets GitHub sont nécessaires : `GMAIL_ADDRESS`, contenant l'adresse complète, et `GMAIL_APP_PASSWORD`, contenant un mot de passe d'application Google créé après activation de la validation en deux étapes. Le mot de passe ordinaire du compte ne doit jamais être utilisé. Les secrets se configurent dans **Settings → Secrets and variables → Actions** du dépôt.
+
+Quand ces secrets sont présents, `alerte_humaine.py` envoie également dans la boîte dédiée les blocages du moteur public, avec les actions et liens nécessaires, sans répéter une alerte inchangée. Les messages sans URL publique restent dans `Adjudications-A-Verifier`. Les alertes multi-lots sont séparées par leurs liens publics ; un prix global ambigu n'est jamais attribué à tous les lots.
+
 ## Installation et test local
 
 Python **3.10 ou plus**, sans bibliothèque Python externe. Pour lire les pièces : **Poppler** (`pdfinfo`, `pdftotext`, `pdftoppm`) et **Tesseract**, avec les langues française et anglaise. Le workflow installe ces outils sur Ubuntu. Un outil absent, un PDF protégé, un document dépassant 10 Mo ou 300 pages reste signalé pour contrôle manuel.
 
 ```sh
-python -m unittest -v test_veille test_ameliore
+python -m unittest -v test_veille test_ameliore test_gmail_ingest
 python veille.py
 ```
 

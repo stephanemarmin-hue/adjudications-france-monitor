@@ -163,7 +163,17 @@ def select_sources(database, state, now, *, max_profiles=700, max_directories=16
                    directory_interval_hours=23, discovered_interval_hours=24):
     """Sélectionne toute la veille directe et fait tourner les deux grands référentiels."""
     attempts = state.setdefault("tentatives_sources", {})
-    active = [source for source in database if source.get("active", True)]
+    declared_active = [source for source in database if source.get("active", True)]
+    health = state.get("sante_sources", {})
+    suspended_stale = {
+        source["url"] for source in declared_active
+        if source.get("usage") in {"veille_rapide", "decouverte_nationale"}
+        and int(health.get(source["url"], {}).get("echecs_consecutifs", 0)) >= 3
+        and "404" in normalize(health.get(source["url"], {}).get("derniere_erreur", ""))
+    }
+    # Les anciennes fiches d'annuaire en 404 restent dans le référentiel mais
+    # ne consomment plus le budget rapide à chaque passage.
+    active = [source for source in declared_active if source["url"] not in suspended_stale]
     daily, profiles, directories = [], [], []
     for source in active:
         usage = source.get("usage") or "veille_quotidienne"
@@ -193,6 +203,7 @@ def select_sources(database, state, now, *, max_profiles=700, max_directories=16
     selected = list({source["url"]: source for source in selected}.values())
     stats = {
         "sources_base_total": len(database), "sources_actives_total": len(active),
+        "sources_obsoletes_suspendues": len(suspended_stale),
         "veille_quotidienne_total": len(daily), "veille_rapide_total": len(profiles),
         "decouverte_nationale_total": len(directories), "sources_decouvertes_total": len(remembered),
         "veille_quotidienne_selectionnees": len(daily),
@@ -323,7 +334,9 @@ def seed_records(markup, page_url, source, timestamp):
     host = (urlparse(page_url).hostname or "").removeprefix("www.")
     records = {}
     for node in doc.nodes:
-        href = node.attrs.get("data-link") or (node.attrs.get("href") if node.tag == "a" else "")
+        href = (node.attrs.get("data-link") or node.attrs.get("data-href") or node.attrs.get("data-url")
+                or (node.attrs.get("href") if node.tag == "a" else "")
+                or (node.attrs.get("src") if node.tag == "iframe" else ""))
         if not href:
             continue
         url = canonical(href or "", page_url)
@@ -334,7 +347,7 @@ def seed_records(markup, page_url, source, timestamp):
         ) or node
         text = card.text()
         title = node.text() or urlparse(url).path.rsplit("/", 1)[-1]
-        if node.attrs.get("data-link"):
+        if node.attrs.get("data-link") or node.attrs.get("data-href") or node.attrs.get("data-url"):
             heading = next((x for x in node.all() if x.has_class("font-bold") and x.has_class("text-16")), None)
             title = heading.text() if heading else title
         facts = facts_from_text(text, host)
@@ -356,6 +369,16 @@ def seed_records(markup, page_url, source, timestamp):
         if url not in records or len(text) > records[url].get("_text_length", 0):
             record["_text_length"] = len(text)
             records[url] = record
+    # Certains cabinets injectent leurs cartes par JavaScript. Les URL
+    # publiques littérales restent utilisables même sans exécuter le script.
+    for raw in re.findall(r"https?://[^\s\"'<>\\]+", markup):
+        url = canonical(raw.replace("\\/", "/"), page_url)
+        if not url or url in records or not is_candidate_link(page_url, url, url):
+            continue
+        records[url] = {"id": digest(url), "url_annonce": url,
+                        "titre": urlparse(url).path.rsplit("/", 1)[-1] or source["nom"],
+                        "adresse": "", "sources": [source], "faits": {},
+                        "controle_liste_utc": timestamp, "detail_lu_ce_passage": False}
     for record in records.values():
         record.pop("_text_length", None)
     return records, doc
