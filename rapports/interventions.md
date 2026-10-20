@@ -1,75 +1,91 @@
 # Interventions requises
 
-Contrôle : **2026-10-20T18:47:23.330153+02:00** (Europe/Paris).
+Contrôle : **2026-10-20T21:46:45.789896+02:00** (Europe/Paris).
 
-## 1. Référentiel — ca-agen.justice.fr — urgente
+## 1. Site Internet — urgente
 
-1 adresse(s) du référentiel ca-agen.justice.fr présentent un blocage persistant. Exemple : Le nom de domaine ne répond plus.
+Le nom de domaine ne répond plus.
 
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
 
-Lien direct : [http://www.ca-agen.justice.fr/](http://www.ca-agen.justice.fr/)
+Lien direct : [http://faivre-avocat.com/index.php](http://faivre-avocat.com/index.php)
 
-## 2. Référentiel — ca-besancon.justice.fr — urgente
+## 2. Site Internet — urgente
 
-1 adresse(s) du référentiel ca-besancon.justice.fr présentent un blocage persistant. Exemple : Le nom de domaine ne répond plus.
+La page surveillée n'existe plus (HTTP 404).
 
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+Action : Ouvrir le lien, retrouver la nouvelle rubrique de ventes et transmettre sa nouvelle adresse.
 
-Lien direct : [http://www.ca-besancon.justice.fr/](http://www.ca-besancon.justice.fr/)
+Lien direct : [http://www.avocats-rvf.fr/](http://www.avocats-rvf.fr/)
 
-## 3. Référentiel — ca-poitiers.justice.fr — urgente
+## 3. Site Internet — urgente
 
-1 adresse(s) du référentiel ca-poitiers.justice.fr présentent un blocage persistant. Exemple : Le nom de domaine ne répond plus.
+Le nom de domaine ne répond plus.
 
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
 
-Lien direct : [http://www.ca-poitiers.justice.fr/](http://www.ca-poitiers.justice.fr/)
+Lien direct : [http://www.brummetassocies.com/](http://www.brummetassocies.com/)
 
-## 4. Référentiel — ca-toulouse.justice.fr — urgente
+## 4. Site Internet — urgente
 
-1 adresse(s) du référentiel ca-toulouse.justice.fr présentent un blocage persistant. Exemple : Le nom de domaine ne répond plus.
+Le nom de domaine ne répond plus.
 
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
 
-Lien direct : [http://www.ca-toulouse.justice.fr/](http://www.ca-toulouse.justice.fr/)
+Lien direct : [http://www.cbml-avocats.fr](http://www.cbml-avocats.fr)
 
-## 5. Référentiel — lannuaire.service-public.gouv.fr — urgente
+## 5. Site Internet — urgente
 
-1 adresse(s) du référentiel lannuaire.service-public.gouv.fr présentent un blocage persistant. Exemple : La page surveillée n'existe plus (HTTP 404).
+Le nom de domaine ne répond plus.
 
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
 
-Lien direct : [https://lannuaire.service-public.gouv.fr/auvergne-rhone-alpes/haute-loire/f4b37c62-2238-4b4f-aca1-c9d54d3effc9](https://lannuaire.service-public.gouv.fr/auvergne-rhone-alpes/haute-loire/f4b37c62-2238-4b4f-aca1-c9d54d3effc9)
+Lien direct : [http://www.cuvreau-dauga.com/](http://www.cuvreau-dauga.com/)
 
-## 6. Enchères Publiques - immobilier — à vérifier
+## 6. Site Internet — urgente
 
-Accès refusé ou différé depuis 9 passages consécutifs.
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.defosdurau-cambriel-rembliere.com/](http://www.defosdurau-cambriel-rembliere.com/)
+
+## 7. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.jpportet.fr/](http://www.jpportet.fr/)
+
+## 8. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.toullec-avocats.com](http://www.toullec-avocats.com)
+
+## 9. Enchères Publiques - immobilier — à vérifier
+
+Accès refusé ou différé depuis 10 passages consécutifs.
 
 Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
 
 Lien direct : [https://encheres-publiques.com/fr/ventes/immobilier](https://encheres-publiques.com/fr/ventes/immobilier)
 
-## 7. Patrick Barret et Associés — ventes judiciaires — à vérifier
+## 10. Patrick Barret et Associés — ventes judiciaires — à vérifier
 
-Lecture impossible ou partielle depuis 9 passages consécutifs : <urlopen error timed out>.
+Lecture impossible ou partielle depuis 10 passages consécutifs : <urlopen error timed out>.
 
 Action : Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur.
 
 Lien direct : [https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm](https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm)
 
-## 8. Petites Affiches - enchères immobilières — à vérifier
+## 11. Petites Affiches - enchères immobilières — à vérifier
 
-Accès refusé ou différé depuis 9 passages consécutifs.
+Accès refusé ou différé depuis 10 passages consécutifs.
 
 Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
 
 Lien direct : [https://www.petitesaffiches.fr/encheres-immobilieres/](https://www.petitesaffiches.fr/encheres-immobilieres/)
-
-## 9. Référentiel — encheres-publiques.com — à vérifier
-
-9 adresse(s) du référentiel encheres-publiques.com présentent un blocage persistant. Exemple : Accès refusé ou différé depuis 5 passages consécutifs.
-
-Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
-
-Lien direct : [https://encheres-publiques.com/profils/immobilier/avocat/bordeaux-33](https://encheres-publiques.com/profils/immobilier/avocat/bordeaux-33)
