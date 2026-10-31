@@ -1,27 +1,115 @@
 # Interventions requises
 
-Contrôle : **2026-10-31T06:52:56.525378+01:00** (Europe/Paris).
+Contrôle : **2026-10-31T09:54:20.236424+01:00** (Europe/Paris).
 
-## 1. Enchères Publiques - immobilier — à vérifier
+## 1. Site Internet — urgente
 
-Accès refusé ou différé depuis 93 passages consécutifs.
+La page surveillée n'existe plus (HTTP 404).
+
+Action : Ouvrir le lien, retrouver la nouvelle rubrique de ventes et transmettre sa nouvelle adresse.
+
+Lien direct : [http://annuaire.avocatline.com/cabinet-avocats/userprofile/GRAFMEYER%20BAUDRIER](http://annuaire.avocatline.com/cabinet-avocats/userprofile/GRAFMEYER%20BAUDRIER)
+
+## 2. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://faivre-avocat.com/index.php](http://faivre-avocat.com/index.php)
+
+## 3. Site Internet — urgente
+
+La page surveillée n'existe plus (HTTP 404).
+
+Action : Ouvrir le lien, retrouver la nouvelle rubrique de ventes et transmettre sa nouvelle adresse.
+
+Lien direct : [http://www.avocats-rvf.fr/](http://www.avocats-rvf.fr/)
+
+## 4. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.brummetassocies.com/](http://www.brummetassocies.com/)
+
+## 5. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.cbml-avocats.fr](http://www.cbml-avocats.fr)
+
+## 6. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.cuvreau-dauga.com/](http://www.cuvreau-dauga.com/)
+
+## 7. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.defosdurau-cambriel-rembliere.com/](http://www.defosdurau-cambriel-rembliere.com/)
+
+## 8. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.jpportet.fr/](http://www.jpportet.fr/)
+
+## 9. Site Internet — urgente
+
+Le nom de domaine ne répond plus.
+
+Action : Vérifier si le site a changé d'adresse et transmettre le nouveau lien.
+
+Lien direct : [http://www.toullec-avocats.com](http://www.toullec-avocats.com)
+
+## 10. Enchères Publiques - immobilier — à vérifier
+
+Accès refusé ou différé depuis 94 passages consécutifs.
 
 Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
 
 Lien direct : [https://encheres-publiques.com/fr/ventes/immobilier](https://encheres-publiques.com/fr/ventes/immobilier)
 
-## 2. Patrick Barret et Associés — ventes judiciaires — à vérifier
+## 11. Patrick Barret et Associés — ventes judiciaires — à vérifier
 
-Lecture impossible ou partielle depuis 93 passages consécutifs : <urlopen error timed out>.
+Lecture impossible ou partielle depuis 94 passages consécutifs : <urlopen error timed out>.
 
 Action : Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur.
 
 Lien direct : [https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm](https://www.barret-associes.fr/ventes-aux-encheres/nos-ventes.htm)
 
-## 3. Petites Affiches - enchères immobilières — à vérifier
+## 12. Petites Affiches - enchères immobilières — à vérifier
 
-Accès refusé ou différé depuis 93 passages consécutifs.
+Accès refusé ou différé depuis 94 passages consécutifs.
 
 Action : Ouvrir le lien dans le navigateur, accepter les éventuels cookies ou confirmer si une connexion est requise.
 
 Lien direct : [https://www.petitesaffiches.fr/encheres-immobilieres/](https://www.petitesaffiches.fr/encheres-immobilieres/)
+
+## 13. Référentiel — encheres-publiques.com — à vérifier
+
+9 adresse(s) du référentiel encheres-publiques.com présentent un blocage persistant. Exemple : Accès refusé ou différé depuis 47 passages consécutifs.
+
+Action : Ouvrir l'exemple, vérifier si le domaine a changé sa structure ou exige une connexion, puis transmettre la nouvelle rubrique nationale si elle existe.
+
+Lien direct : [https://encheres-publiques.com/profils/immobilier/avocat/bordeaux-33](https://encheres-publiques.com/profils/immobilier/avocat/bordeaux-33)
+
+## 14. Site Internet — à vérifier
+
+Lecture impossible ou partielle depuis 12 passages consécutifs : HTTP Error 400: Bad Request.
+
+Action : Ouvrir le lien et confirmer s'il fonctionne normalement dans le navigateur.
+
+Lien direct : [http://www.bismuthassocies.com](http://www.bismuthassocies.com)
